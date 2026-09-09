@@ -16,7 +16,7 @@ services:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
 
   frigate:
-    image: ghcr.io/blakeblackshear/frigate:0.15.1
+    image: ghcr.io/blakeblackshear/frigate:0.17.2
     container_name: face-rec-phase1-frigate
     restart: unless-stopped
     shm_size: "512mb"
@@ -35,6 +35,13 @@ services:
       # container's own filesystem for this disposable Phase 1 POC.
     environment:
       - TZ=${TZ:-UTC}
+      # 0.17 breaking change (upgraded 2026-09-09 from 0.15.1): go2rtc exec:/echo:/expr:
+      # sources are blocked by default for security. The Phase 1 sample-media loop uses a
+      # go2rtc exec producer (frigate/config/config.yml) to feed the validated test clip,
+      # so re-enable the exec source via the official documented env var. LOCAL DEV POC
+      # ONLY — the production Ring path (Phase 5) uses plain rtsp:// sources and must NOT
+      # set this. See https://docs.frigate.video/configuration/restream (0.17 release notes).
+      - GO2RTC_ALLOW_ARBITRARY_EXEC=true
 
   ha-throwaway:
     image: ghcr.io/home-assistant/home-assistant:2024.12.5

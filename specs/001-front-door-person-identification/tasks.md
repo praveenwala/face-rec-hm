@@ -233,7 +233,13 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
   (introduced in Frigate 0.16.0; isolated config probe: `face_recognition:` block rejected
   as `extra_forbidden`). Phase 3 (T032+) therefore requires upgrading the pinned Frigate
   image to 0.16+ (small model, CPU-only) — an explicit dependency decision pending user
-  review
+  review — **UPDATE 2026-09-09: user-approved controlled upgrade completed; Frigate
+  `0.15.1 → 0.17.2` (current stable), full `run_harness.sh all` regression OVERALL PASS
+  (unchanged harness, MQTT contract holds), isolated feature probe FEATURE_PRESENT=YES
+  (`face_recognition: {enabled, model_size: small}` accepted, defaults 0.8/0.9),
+  `GO2RTC_ALLOW_ARBITRARY_EXEC=true` added for the local sample-loop (dev-only),
+  config auto-migrated to `version: 0.17-0` — PD-09 re-classified **`PD09_PASS`**; T032
+  actionable pending explicit approval**
 - [ ] T032 [P] [US2] Enable Frigate's native face-recognition feature in
   `frigate/config/config.yml` (research.md #9; constitution VI.2) (depends on: T031)
 - [ ] T033 [P] [US2] Set the starting confidence threshold conservatively, favoring `Unknown`

@@ -174,15 +174,48 @@ image to 0.16+ (small model, CPU-only) — an explicit dependency decision, not 
 Per PD-09's own rule, face-recognition work must not proceed until the runtime that contains
 the feature is pinned and re-verified on supported hardware.
 
+### Upgrade + re-verification (2026-09-09, controlled compatibility phase before T032)
+
+After the user accepted the T031 classification, the local Frigate runtime was upgraded
+**0.15.1 → 0.17.2** (current stable; `ghcr.io/blakeblackshear/frigate:0.17.2`, released
+2026-06-28; 0.18.0 was still RC-only and excluded per the no-RC rule). See the FRIGATE
+UPGRADE COMPATIBILITY REPORT in the repo history for full evidence; summary:
+
+- **Breaking changes reviewed** (0.17.0 release notes): go2rtc `exec:` sources blocked by
+default (handled via official `GO2RTC_ALLOW_ARBITRARY_EXEC=true` env var, local-dev-only),
+camera-resolution auto-detection change (our config already pins `detect.width/height`),
+tiered recordings retention + `strftime_fmt` removal (unused here), GenAI config move
+(unused), `detect.enabled` honored as-is (no change needed).
+- **Config migration**: Frigate auto-migrated `config.yml` `0.15-1 → 0.16-0 → 0.17-0`
+(backup written to gitignored `backup_config.yaml`); the go2rtc `exec:` line was reflowed
+but is functionally identical; `version: 0.17-0` now tracked.
+- **DB migration**: no existing runtime DB (disposable POC); Frigate created a fresh
+`frigate.db` (gitignored) and ran its own peewee migrations cleanly.
+- **Regression (run_harness.sh all, unchanged harness)**: OVERALL PASS — PERSON_PRESENT
+(27 events, first `update|person|0.82421875`), PERSON_NOT_DETECTED (0 in 45s),
+MEDIA_DECODE_FAILURE / STREAM_FAILURE / EVENT_DELIVERY_FAILURE all distinct; MQTT payload
+shape unchanged (T024 contract holds, `sub_label` null); camera_fps 5.1 / detection_fps
+16.4, zero frame errors; throwaway-HA sensor unaffected; ring-mqtt untouched.
+- **Feature probe (isolated, no enrollment, no persistent config change)**: 0.17.2 schema
+**accepts** `face_recognition: {enabled: true, model_size: small}` (defaults
+`unknown_score 0.8`, `recognition_threshold 0.9`); runtime modules present
+(`data_processing/real_time/face.py`, `data_processing/common/face/model.py`); no
+AVX/AVX2 or architecture error. **FEATURE_PRESENT = YES**.
+
+**PD-09 re-classification: `PD09_PASS`** — all required items now satisfied: x86_64 ✓,
+AVX ✓, AVX2 ✓, Docker arch ✓, face-recognition feature present in the running build ✓,
+small model accepted ✓, no instruction/runtime blocker ✓.
+
 ## PD-10 — No Development Before Green Baseline
 
 **T019 gate result: PASS.** PD-01 through PD-08 now pass in full (see each section above for evidence); PD-09 was explicitly **deferred** to Phase 3 (T031) at gate time, which was the sanctioned disposition per PD-10 ("PD-09 has either passed or has been explicitly deferred to supported hardware"). Per the constitution and your explicit instructions, implementation tasks (T020+) may now begin.
 
-**Update (T031, 2026-09-09):** PD-09 has now been **executed** with classification
-`PD09_FAIL_FRIGATE_BUILD` — hardware passes, the pinned Frigate build lacks the feature (see
-PD-09 section above). Per PD-09's rule, face-recognition validation must not proceed until a
-Frigate runtime that actually contains native face recognition is pinned and re-verified on
-this (satisfying) host.
+**Update (T031 + controlled upgrade, 2026-09-09):** PD-09 was executed with classification
+`PD09_FAIL_FRIGATE_BUILD` (hardware passes, pinned 0.15.1 build lacked the feature), and after
+the user-approved controlled upgrade to Frigate **0.17.2** + full regression, PD-09 is
+re-classified **`PD09_PASS`** — the running runtime now contains native face recognition
+(small model, CPU) and the validated person-detection pipeline is unchanged (see PD-09
+section). T032 is now actionable pending explicit approval.
 
 ## Phase 3 (Constitution Phase 1) — Person Detection MVP evidence (T020–T026)
 

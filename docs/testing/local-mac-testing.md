@@ -584,14 +584,26 @@ docker exec face-rec-phase1-frigate sh -c 'grep -rl "face_recognition" /opt/frig
 #   → (no output: feature absent in the pinned 0.15.x build)
 ```
 
-**Result (2026-09-09):** hardware fully satisfies Frigate's documented AVX+AVX2
-face-recognition requirement (both flags present; native x86_64 end-to-end), **but the
-pinned Frigate build `0.15.1` does not contain the feature** — native face recognition was
-introduced in Frigate **0.16.0** (2025-08). An isolated config probe confirmed
-`FrigateConfig` **rejects** a `face_recognition:` block
-(`extra_forbidden` — not a schema field in 0.15.x). Classification:
-`PD09_FAIL_FRIGATE_BUILD`. Unblocking Phase 3 requires upgrading the pinned Frigate image to
-0.16+ (small model, CPU-only) — an explicit decision for the user, not made here.
+**Result (2026-09-09, updated after controlled upgrade):** hardware fully satisfies
+Frigate's documented AVX+AVX2 face-recognition requirement (both flags present; native
+x86_64 end-to-end). The first pass (pinned Frigate `0.15.1`) found `PD09_FAIL_FRIGATE_BUILD`
+— the build lacks native face recognition (introduced in Frigate **0.16.0**; isolated config
+probe rejected a `face_recognition:` block as `extra_forbidden`). After the user-approved
+controlled upgrade to **Frigate 0.17.2** (current stable), PD-09 is re-classified
+**`PD09_PASS`**: `face_recognition: {enabled, model_size: small}` is accepted, the runtime
+modules exist, and the full `run_harness.sh all` regression passes unchanged.
+
+**Frigate upgrade notes (0.15.1 → 0.17.2):**
+- Frigate auto-migrates the config (`0.15-1 → 0.17-0`); the go2rtc `exec:` line is reflowed
+  but functionally identical. `backup_config.yaml` + `frigate.db` are written into
+  `frigate/config/` and are gitignored.
+- 0.17 blocks go2rtc `exec:`/`echo:`/`expr:` sources by default. The Phase 1 sample-media
+  loop needs the official escape hatch `GO2RTC_ALLOW_ARBITRARY_EXEC=true` (set in
+  `docker-compose.yml`, **local dev only** — never in production, which uses plain `rtsp://`
+  Ring sources).
+- 0.17 changed camera-resolution auto-detection; our config already pins
+  `detect.width/height`, so no change was needed. `detect.enabled` stays honored as-is.
+- ffmpeg path unchanged (`/usr/lib/ffmpeg/7.0/bin/ffmpeg` present in the 0.17 image).
 
 ## 14. Restarting later
 
@@ -740,6 +752,9 @@ not this checklist.
 - [x] T030 Phase 2 documented (this guide §13a + validation-report.md)
 - [x] bounded test torn down; sample-media mode restored (see §13a steps 8–9)
 - [x] T031 PD-09 hardware gate executed (read-only): AVX/AVX2 present, x86_64 native,
-  Frigate 0.15.1 build lacks native face recognition → `PD09_FAIL_FRIGATE_BUILD` (see §13b)
+  Frigate 0.15.1 build lacked native face recognition → `PD09_FAIL_FRIGATE_BUILD` (see §13b)
+- [x] controlled Frigate upgrade 0.15.1 → 0.17.2: regression OVERALL PASS (unchanged
+  harness), face-recognition feature probe FEATURE_PRESENT=YES, PD-09 re-classified
+  `PD09_PASS` (see §13b)
 
 **DO NOT START T031 UNTIL the Phase 4 checkpoint is confirmed PASS.**

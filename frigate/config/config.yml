@@ -52,4 +52,4 @@ cameras:
         default: 3 # short retention for Phase 1 debugging only (constitution II.5)
 
 # Deliberately no `face_recognition:` block yet — Phase 3 scope (research.md #9).
-version: 0.15-1
+version: 0.17-0

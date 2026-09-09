@@ -40,6 +40,20 @@ run on different hosts with different responsibilities and different risk profil
 
 They are never the same machine.
 
+### Frigate version (updated 2026-09-09: 0.15.1 → 0.17.2)
+
+The Mac POC now runs **Frigate `0.17.2`** (current stable as of 2026-09-09). It was upgraded
+from `0.15.1` because native face recognition was introduced in Frigate 0.16.0 and the POC's
+PD-09 hardware gate (`PD09_PASS`) requires a build that contains the feature. Production MUST
+deploy Frigate 0.17.x (or newer stable) — re-pin per constitution VI.3 at deployment time.
+
+**Production note (0.17 breaking change):** go2rtc `exec:`/`echo:`/`expr:` sources are
+blocked by default in 0.17 for security. The Mac POC sets
+`GO2RTC_ALLOW_ARBITRARY_EXEC=true` for its local sample-media loop — **production MUST NOT
+set this variable**; the production Ring path uses plain `rtsp://` sources via ring-mqtt's
+RTSP gateway and needs no `exec:`. Keep this flag unset on any host that ingests Ring
+streams.
+
 ### Ring bridge selection (Phase 2 validated: 2026-09-09)
 
 The validated bridge is **ring-mqtt** (`tsightler/ring-mqtt`, currently pinned `5.9.3` for

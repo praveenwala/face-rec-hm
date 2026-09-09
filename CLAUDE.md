@@ -19,14 +19,18 @@ Phase 2 live tests used short deliberate windows and the Frigate config was rest
 looped sample-media source afterward (`docs/testing/local-mac-testing.md` §13a). Ring auth
 (2FA refresh token) lives in gitignored `ring-mqtt/data/`.
 
-**T031 (PD-09 face-recognition hardware gate) has been executed — classification
-`PD09_FAIL_FRIGATE_BUILD`.** This host fully satisfies Frigate's documented AVX+AVX2
-face-recognition requirement (raw `AVX1.0`/`AVX2` CPU flags verified; native x86_64 Docker),
-but the pinned Frigate image `0.15.1` does **not** contain native face recognition (that
-feature arrived in Frigate 0.16.0; an isolated config probe rejects a `face_recognition:`
-block as `extra_forbidden`). Constitution Phase 3 (T032+) is therefore **blocked on a
-Frigate 0.16+ image upgrade** — an explicit dependency decision for the user — not on
-hardware.
+**T031 (PD-09 face-recognition hardware gate) has been executed, and PD-09 is now
+`PD09_PASS`.** The host hardware fully satisfies Frigate's documented AVX+AVX2 requirement
+(raw `AVX1.0`/`AVX2` CPU flags verified; native x86_64 Docker). The first T031 check found
+`PD09_FAIL_FRIGATE_BUILD` (the then-pinned 0.15.1 lacked the feature, which arrived in
+0.16.0), and the user-approved controlled upgrade to **Frigate 0.17.2** (current stable)
+resolved it: full `run_harness.sh all` regression passes unchanged, MQTT event contract
+holds, and an isolated probe confirms `face_recognition` config with `model_size: small` is
+accepted (FEATURE_PRESENT = YES). One 0.17 breaking change is handled locally: go2rtc
+`exec:` sources are blocked by default, so the dev POC sets
+`GO2RTC_ALLOW_ARBITRARY_EXEC=true` **for the local sample-media loop only** — production
+(Phase 5) must use plain RTSP sources and must NOT set it. Constitution Phase 3 (T032+) is
+now actionable pending explicit approval — face recognition itself is still NOT enabled.
 
 There is still no application source code — only configuration (Docker Compose, Frigate,
 Mosquitto), scripts (`scripts/loop-test-video.sh`), and documentation. Once T020+ begins, all
