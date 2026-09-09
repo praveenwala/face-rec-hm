@@ -4,18 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repository currently contains **no source code** — only a spec-kit (`speckit`) scaffold, the
-project's baseline requirements document (`Home_Assistant_Ring_Face_Recognition_Requirements.pdf`),
-and a planned-but-not-yet-implemented feature at
-`specs/001-front-door-person-identification/` (spec, plan, research, data model, contracts,
-quickstart, and pre-development validation gate). There is no build, lint, or test tooling to run
-yet — `/speckit-tasks` and `/speckit-implement` haven't run for this feature.
+Feature `001-front-door-person-identification` has a ratified spec, plan, and tasks.md, and is
+mid-way through its Foundational/pre-development validation gate (tasks T009–T019 in
+`specs/001-front-door-person-identification/tasks.md`). The Phase 1 Mac POC environment
+(`docker-compose.yml`: Mosquitto + Frigate + a throwaway Home Assistant container) exists and
+runs locally — see `docs/testing/local-mac-testing.md` for how to start it and what to check.
+**T019 is a hard gate: no feature implementation task (T020+) may start until it passes** — it
+is currently blocked on user-provided sample media (T008). Check
+`specs/001-front-door-person-identification/validation-report.md` for the current,
+authoritative pass/fail state.
 
-Once implementation begins, the stack (per `specs/001-front-door-person-identification/plan.md`) is:
-Docker Compose orchestrating Frigate + Mosquitto MQTT (+ a throwaway Home Assistant container for
-Phase 1 validation only), no custom application code — Home Assistant automations/Jinja2 templates
-implement all identity/relationship/notification logic. Update this section with the actual run
-commands once `docker-compose.yml` and `tests/phase1/run_harness.sh` exist.
+There is still no application source code — only configuration (Docker Compose, Frigate,
+Mosquitto), scripts (`scripts/loop-test-video.sh`), and documentation. Once T020+ begins, all
+identity/relationship/notification logic is implemented as Home Assistant
+automations/Jinja2 templates, not custom application code (per the plan's Technical Context).
+
+## Local Test Documentation Gate
+
+Every feature must have documented local validation steps, kept current, before it can be
+committed as complete — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full rule and
+pre-commit checklist. Feature-local testing docs live under `docs/testing/` and are linked
+from the corresponding `specs/<feature>/` directory.
 
 ## Spec-kit workflow
 
