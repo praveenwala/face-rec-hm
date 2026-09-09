@@ -5,8 +5,9 @@
 .env
 .env.*
 !.env.example
-*secrets*
-!*secrets*.example
+*secret*
+!*secret*.example
+.jwt_secret
 
 # Identity/face data — never commit biometric data (constitution Principle II.4/II.5)
 identity-library/
@@ -40,6 +41,24 @@ home-assistant/helpers/relationship_mapping.yaml
 # Home Assistant credentials/tokens if ever staged locally
 home-assistant/**/secrets.yaml
 home-assistant/**/.storage/
+
+# Throwaway Home Assistant container's runtime config dir (docker-compose.yml
+# ha-throwaway service) — entirely disposable generated state, never source-controlled
+# (constitution II.4; research.md #10). Includes its own db, logs, blueprints, default
+# YAML — none of it is authored by this project.
+home-assistant/throwaway-config/
+
+# Frigate's own runtime state (database, JWT secret, backups, export/timeline/vacuum
+# markers) written into frigate/config/ at runtime by the bind mount — only config.yml
+# in that directory is authored by this project and should be tracked.
+frigate/config/*
+!frigate/config/config.yml
+
+# Database files anywhere in the repo — this project has no tracked database
+# (constitution: storage is local filesystem only); anything matching is runtime state.
+*.db
+*.db-shm
+*.db-wal
 
 # Local tooling
 *.log

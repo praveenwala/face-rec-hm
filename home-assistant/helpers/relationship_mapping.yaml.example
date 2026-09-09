@@ -1,0 +1,19 @@
+# Example only — copy to relationship_mapping.yaml and fill in real household data.
+# relationship_mapping.yaml is gitignored (constitution II.4) and never committed.
+# Schema: specs/001-front-door-person-identification/contracts/identity-library-schema.md
+#
+# <identity_name> MUST exactly match the enrolled name Frigate reports as sub_label
+# (Known Identity.name — FR-031, unique). `relationship` is optional and, when present,
+# MUST be one of: Family | Friend | Neighbor | Other Known (FR-009).
+
+people:
+  Chandra:
+    relationship: Family
+  John:
+    relationship: Neighbor
+  Alex:
+    relationship: Friend
+  Vendor1:
+    relationship: Other Known
+  Sam:
+    # no relationship key: recognized identity is reported without inventing a category

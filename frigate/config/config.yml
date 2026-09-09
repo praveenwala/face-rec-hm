@@ -1,0 +1,55 @@
+# Phase 1 (Mac POC) minimal config. Person detection only — face recognition is
+# intentionally NOT enabled here (constitution V.1 — build incrementally; FR-001/FR-002).
+# See contracts/mqtt-events.md for the frigate/events shape HA automations rely on later.
+
+mqtt:
+  host: mosquitto
+  port: 1883
+  topic_prefix: frigate
+
+# go2rtc is bundled in the Frigate image. The "exec" producer loops the sample test video
+# via ffmpeg (research.md #3) so Frigate always has a live-looking RTSP source without a
+# real Ring stream. /media/test-source is tests/phase1/test-media/ (docker-compose.yml),
+# mounted read-only — deliberately NOT at /media directly, since Frigate itself needs
+# /media/frigate writable for its own clips/recordings/exports/db (found during T013).
+# PLACEHOLDER: known-person-walk.mp4 does not exist until T008 provides sample media —
+# this stream will fail to start until that file is in place. Swap the filename to test
+# other clips (e.g. no-person-motion.mp4 for T021/T016's negative test).
+go2rtc:
+  streams:
+    front_door_test:
+      # {{output}} is doubled: Frigate applies its own {}-format pass over this string
+      # before handing it to go2rtc, so a single {output} raises "Invalid substitution
+      # found" (found during T013 — see docs.frigate.video/configuration/restream#advanced-restream-configurations).
+      # go2rtc's exec producer runs with a minimal PATH that doesn't include Frigate's own
+      # ffmpeg build dirs, so bare `ffmpeg` fails with "executable file not found in $PATH"
+      # (also found during T013) — use the absolute path to Frigate's bundled ffmpeg 7.0.
+      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -re -stream_loop -1 -i /media/test-source/known-person-walk.mp4 -c copy -f rtsp {{output}}"
+
+cameras:
+  front_door:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/front_door_test
+          roles:
+            - detect
+    detect:
+      enabled: true
+      width: 1280
+      height: 720
+      fps: 5
+    objects:
+      track:
+        - person
+    # Face recognition deliberately omitted for Phase 1 — enabled in Phase 3 (T031-T033)
+    # only after PD-09's hardware gate passes.
+    record:
+      enabled: false
+    snapshots:
+      enabled: true
+      retain:
+        default: 3 # short retention for Phase 1 debugging only (constitution II.5)
+
+# Deliberately no `face_recognition:` block yet — Phase 3 scope (research.md #9).
+version: 0.15-1

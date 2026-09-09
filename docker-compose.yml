@@ -1,0 +1,51 @@
+# Phase 1 (Mac POC) stack. Isolated from production — nothing here talks to the real
+# Home Assistant instance at 192.168.68.103 or its Mosquitto broker (constitution I.1;
+# research.md #4, #10). See plan.md and pre-development-validation.md.
+#
+# Image tags below are pinned per constitution VI.3; re-confirm/update them during T013
+# (Frigate baseline validation) if a newer stable tag is preferred at execution time.
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.18
+    container_name: face-rec-phase1-mosquitto
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:0.15.1
+    container_name: face-rec-phase1-frigate
+    restart: unless-stopped
+    shm_size: "512mb"
+    depends_on:
+      - mosquitto
+    ports:
+      - "${FRIGATE_UI_PORT:-5000}:5000"
+      - "8554:8554" # go2rtc RTSP restream (scripts/loop-test-video.sh publishes here)
+    volumes:
+      - ./frigate/config:/config
+      - ./tests/phase1/test-media:/media/test-source:ro
+      - /tmp/frigate-phase1-cache:/tmp/cache
+      # /media/frigate (Frigate's own clips/recordings/exports/db) is intentionally NOT
+      # bind-mounted into the repo — Frigate's own data volume stays outside the git
+      # working tree per research.md #6 / constitution II.4-II.5. It lives in the
+      # container's own filesystem for this disposable Phase 1 POC.
+    environment:
+      - TZ=${TZ:-UTC}
+
+  ha-throwaway:
+    image: ghcr.io/home-assistant/home-assistant:2024.12.5
+    container_name: face-rec-phase1-ha-throwaway
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+      - frigate
+    ports:
+      - "${HA_THROWAWAY_PORT:-8124}:8123"
+    volumes:
+      - ./home-assistant/throwaway-config:/config
+    environment:
+      - TZ=${TZ:-UTC}

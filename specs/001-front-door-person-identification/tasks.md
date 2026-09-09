@@ -37,27 +37,28 @@ them early.
 **Purpose**: Create the constitution's recommended repo structure and Phase 1 configuration
 scaffolding (plan.md's Project Structure).
 
-- [ ] T001 Create `frigate/config/`, `ring-mqtt/`, `home-assistant/automations/`,
+- [x] T001 Create `frigate/config/`, `ring-mqtt/`, `home-assistant/automations/`,
   `home-assistant/helpers/`, `scripts/`, `tests/phase1/test-media/`, `docs/` directories per
   `plan.md`'s Project Structure
-- [ ] T002 [P] Create `.env.example` at repo root documenting required environment variables
+- [x] T002 [P] Create `.env.example` at repo root documenting required environment variables
   (MQTT host/port, Frigate config path) per `pre-development-validation.md` §7
-- [ ] T003 [P] Write `docker-compose.yml` defining `mosquitto`, `frigate`, and
+- [x] T003 [P] Write `docker-compose.yml` defining `mosquitto`, `frigate`, and
   `ha-throwaway` services (research.md #4, #10; `plan.md` Technical Context)
-- [ ] T004 [P] Write `frigate/config/config.yml`: go2rtc-sourced test camera, person
+- [x] T004 [P] Write `frigate/config/config.yml`: go2rtc-sourced test camera, person
   detection only (no face recognition yet), MQTT connection to the isolated broker
   (`contracts/mqtt-events.md`)
-- [ ] T005 [P] Write `scripts/loop-test-video.sh` to loop a sample doorbell-angle video
+- [x] T005 [P] Write `scripts/loop-test-video.sh` to loop a sample doorbell-angle video
   through go2rtc/ffmpeg as an RTSP source (research.md #3)
-- [ ] T006 [P] Write `home-assistant/helpers/relationship_mapping.yaml.example` per
+- [x] T006 [P] Write `home-assistant/helpers/relationship_mapping.yaml.example` per
   `contracts/identity-library-schema.md`
-- [ ] T007 [P] Update `.gitignore` to explicitly exclude
+- [x] T007 [P] Update `.gitignore` to explicitly exclude
   `home-assistant/helpers/relationship_mapping.yaml` (the real file) while still allowing
   `relationship_mapping.yaml.example` — the current `.gitignore` only has generic
   `*secrets*`/`identity-library/` patterns, not this specific path (constitution II.4)
-- [ ] T008 Collect and place sample test media under `tests/phase1/test-media/` per
-  `pre-development-validation.md` §5 (5-10 enrollment photos of one person; 3-5 short videos:
-  known-person walk, unknown-person walk, no-person motion, low-light, optional two-person)
+- [ ] T008 **BLOCKED — awaiting user-provided sample media.** Collect and place sample test
+  media under `tests/phase1/test-media/` per `pre-development-validation.md` §5 (5-10
+  enrollment photos of one person; 3-5 short videos: known-person walk, unknown-person walk,
+  no-person motion, low-light, optional two-person)
 
 ---
 
@@ -66,38 +67,47 @@ scaffolding (plan.md's Project Structure).
 **Purpose**: Execute `pre-development-validation.md` PD-01–PD-08. **⚠️ CRITICAL: No Phase 3
 (or later) task may start until T019 passes** (constitution XI.1, PD-10).
 
-- [ ] T009 Execute PD-01 Host Capability Inventory; record in
+- [x] T009 Execute PD-01 Host Capability Inventory; record in
   `specs/001-front-door-person-identification/validation-report.md` (Mac model, macOS
   version, RAM, disk, Docker version/arch — CPU architecture is already confirmed: Intel
-  `i9-9980HK`, x86_64, via `/grill-me`)
-- [ ] T010 [P] Execute PD-02 Required Local Runtime check (Docker Desktop, Compose, Git,
+  `i9-9980HK`, x86_64, via `/grill-me`) — **PASS**, disk free (16GB) and production-HA TCP
+  reachability noted as non-blocking observations
+- [x] T010 [P] Execute PD-02 Required Local Runtime check (Docker Desktop, Compose, Git,
   curl, VLC/ffplay, ffprobe, `mosquitto_pub`/`mosquitto_sub`); record in
-  `validation-report.md`
-- [ ] T011 Execute PD-03 MQTT Validation: `mosquitto_pub`/`mosquitto_sub` round-trip test
+  `validation-report.md` — **PASS** (ffmpeg + mosquitto-clients installed via Homebrew
+  during execution)
+- [x] T011 Execute PD-03 MQTT Validation: `mosquitto_pub`/`mosquitto_sub` round-trip test
   against the `docker-compose.yml` `mosquitto` service; record in `validation-report.md`
-  (depends on: T003, T010)
-- [ ] T012 Execute PD-04 Container Validation: `docker compose up`/`down` smoke test, mount
-  check; record in `validation-report.md` (depends on: T003)
-- [ ] T013 Execute PD-05 Frigate Baseline Validation: start Frigate with the minimal config,
+  (depends on: T003, T010) — **PASS**
+- [x] T012 Execute PD-04 Container Validation: `docker compose up`/`down` smoke test, mount
+  check; record in `validation-report.md` (depends on: T003) — **PASS**
+- [x] T013 Execute PD-05 Frigate Baseline Validation: start Frigate with the minimal config,
   confirm UI reachable, no restart loop, no unresolved config errors; record in
-  `validation-report.md` (depends on: T004, T012)
-- [ ] T014 Execute PD-06 Media Validation: probe/decode every file under
+  `validation-report.md` (depends on: T004, T012) — **PASS** after fixing 3 real bugs found
+  during execution (port 5000 conflict, `/media` mount collision, go2rtc `exec:` producer
+  syntax); ingestion mechanics proven via a synthetic non-biometric clip; real-clip run still
+  needs T008
+- [ ] T014 **BLOCKED on T008.** Execute PD-06 Media Validation: probe/decode every file under
   `tests/phase1/test-media/` with ffprobe per `pre-development-validation.md` §6; record
   results in `validation-report.md` (depends on: T008)
-- [ ] T015 Run `scripts/loop-test-video.sh` and confirm Frigate ingests the RTSP source
-  (depends on: T005, T013, T014)
-- [ ] T016 Execute PD-07 Person Detection Validation: feed the known-person and no-person
-  clips, confirm `frigate/events` fires correctly for the former and not for the latter
-  (depends on: T015)
-- [ ] T017 Stand up the throwaway Home Assistant container from `docker-compose.yml`; confirm
+- [ ] T015 **PARTIAL — mechanism proven, real clip blocked on T008.** Run
+  `scripts/loop-test-video.sh` and confirm Frigate ingests the RTSP source (depends on: T005,
+  T013, T014)
+- [ ] T016 **BLOCKED on T008/T015.** Execute PD-07 Person Detection Validation: feed the
+  known-person and no-person clips, confirm `frigate/events` fires correctly for the former
+  and not for the latter (depends on: T015)
+- [x] T017 Stand up the throwaway Home Assistant container from `docker-compose.yml`; confirm
   it is reachable and is a separate instance from the production Pi-hosted HA (research.md
-  #10) (depends on: T003)
-- [ ] T018 Execute PD-08 in its mechanics-only scope (research.md #11): confirm the
-  throwaway HA sees at least one Frigate-generated event/entity — this does **not** attempt
-  the "existing Ring automations unaffected" check, which is deferred to T053 (depends on:
-  T016, T017)
-- [ ] T019 Finalize `validation-report.md` with PASS/FAIL for PD-01–PD-08 and an explicit
-  PD-09 (face-recognition hardware) deferral note (pre-development-validation.md PD-10) —
+  #10) (depends on: T003) — **PASS**
+- [ ] T018 **PARTIAL — broker/instance mechanics proven; event-visibility check blocked on
+  T016.** Execute PD-08 in its mechanics-only scope (research.md #11): confirm the throwaway
+  HA sees at least one Frigate-generated event/entity — this does **not** attempt the
+  "existing Ring automations unaffected" check, which is deferred to T053 (depends on: T016,
+  T017)
+- [ ] T019 **FAIL (incomplete) — see validation-report.md.** Finalize `validation-report.md`
+  with PASS/FAIL for PD-01–PD-08 and an explicit PD-09 (face-recognition hardware) deferral
+  note (pre-development-validation.md PD-10) — the report is written and the gate result is
+  recorded, but the gate itself does not pass until T008/T014/T016/T018 clear —
   **GATE: this must PASS before any Phase 3 task starts**
 
 **Checkpoint**: Pre-development validation gate passes. Only now may Constitution Phase 1
