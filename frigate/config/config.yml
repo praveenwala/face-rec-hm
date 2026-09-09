@@ -1,5 +1,6 @@
-# Phase 1 (Mac POC) minimal config. Person detection only — face recognition is
-# intentionally NOT enabled here (constitution V.1 — build incrementally; FR-001/FR-002).
+# Phase 1 (Mac POC) minimal config. Person detection is the base; native face
+# recognition (small model, CPU-only) was enabled at T032 after PD-09 passed on this
+# Intel host (constitution V.1 — build incrementally; FR-001/FR-002).
 # See contracts/mqtt-events.md for the frigate/events shape HA automations rely on later.
 
 mqtt:
@@ -42,8 +43,9 @@ cameras:
     objects:
       track:
         - person
-    # Face recognition deliberately omitted for Phase 1 — enabled in Phase 3 (T031-T033)
-    # only after PD-09's hardware gate passes.
+    # Face recognition runs on the person detection (constitution III.1 — person first,
+    # then face). Camera-level face_recognition block not needed: global enable below
+    # applies to all cameras, and no per-camera min_area override is warranted yet.
     record:
       enabled: false
     snapshots:
@@ -51,5 +53,21 @@ cameras:
       retain:
         default: 3 # short retention for Phase 1 debugging only (constitution II.5)
 
-# Deliberately no `face_recognition:` block yet — Phase 3 scope (research.md #9).
+# Native face recognition — T032 (Phase 3), small model only (CPU; this Intel Mac POC).
+# SMALL model (FaceNet embedding) needs no accelerator; the LARGE model (ArcFace) requires
+# GPU/NPU and stays production-only (PD-09 evidence, validation-report.md).
+# No identities are enrolled yet, so the expected result is Unknown / no named match —
+# the pipeline must run safely with an empty face library (FR-002, FR-005).
+# Thresholds below are the Frigate 0.17.2 DEFAULTS written explicitly — baseline POC
+# values, NOT tuned, and NOT final production thresholds: they are conservative and
+# favor Unknown over a false identity (constitution II.2, FR-006). T033/T034+ will
+# evaluate recognition behavior once identities are enrolled and may tune them; until
+# then, Unknown remains the safe default.
+face_recognition:
+  enabled: true
+  model_size: small
+  detection_threshold: 0.7   # min face-detection score to consider a face
+  unknown_score: 0.8         # min distance score to mark a potential match
+  recognition_threshold: 0.9 # min distance score to assign a known identity
+
 version: 0.17-0

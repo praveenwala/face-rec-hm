@@ -353,6 +353,87 @@ sample-media camera restored (`camera_fps 5.0`, detection enabled); harness rema
 See `docs/testing/local-mac-testing.md` §13a for the exact bounded-test procedure and
 restoration steps.
 
+## Phase 5 (Constitution Phase 3) — Face recognition enablement evidence (T032)
+
+**Status: PASS — 2026-09-09.** Native face recognition (SMALL model, CPU-only) is enabled
+and initializes safely on Frigate 0.17.2 with **no identities enrolled**. Enrollment,
+identity creation, and recognition against a known person are explicitly out of scope for
+T032 (that is T033+/T034+).
+
+### T032 — Enable face recognition (small model)
+
+- **Frigate version**: `0.17.2-3d4dd3a` (image `ghcr.io/blakeblackshear/frigate:0.17.2`,
+  digest `sha256:fefe344e…` — unchanged from the PD-09 upgrade checkpoint).
+- **Config added** (global level, per the 0.17.2 schema verified from the installed
+  runtime):
+  ```yaml
+  face_recognition:
+    enabled: true
+    model_size: small
+    detection_threshold: 0.7   # min face-detection score to consider a face
+    unknown_score: 0.8         # min distance score to mark a potential match
+    recognition_threshold: 0.9 # min distance score to assign a known identity
+  ```
+  All three thresholds are the **Frigate 0.17.2 defaults written explicitly** —
+  conservative, favoring Unknown over a false identity (constitution II.2, FR-006).
+  They were deliberately **not tuned** to force recognition: T033 is the dedicated
+  threshold task and remains pending. `model_size: small` = FaceNet embedding, CPU-only
+  (no accelerator); `large` (ArcFace, GPU/NPU) stays production-only per PD-09 evidence.
+  Camera-level `face_recognition` block not needed — global enable applies to all
+  cameras.
+- **Schema verification (authoritative, from the installed 0.17.2 runtime)**:
+  `FaceRecognitionConfig` is a root-level field of `FrigateConfig`; defaults confirmed
+  `enabled=False, model_size='small', unknown_score=0.8, detection_threshold=0.7,
+  recognition_threshold=0.9, min_area=750, min_faces=1, save_attempts=200,
+  blur_confidence_filter=True`. No unsupported keys used.
+
+### Initialization evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| Config accepted | ✅ | `frigate config does not need migration`; version stays `0.17-0`; container `Up (healthy)`, RestartCount 0 |
+| Small model loads | ✅ | `frigate.util.downloader INFO: Downloading model file from … facenet-onnx … facedet.onnx / facenet.tflite / landmarkdet.yaml` — all `Downloading complete`; `Embedding process started: 637`; `/media/frigate/clips/faces/` created |
+| AVX/AVX2 error | ✅ none | No instruction-set errors; XNNPACK CPU delegate initialized (`Created TensorFlow Lite XNNPACK delegate for CPU`) |
+| Dependency error | ✅ none | No tracebacks/import errors; the only WARNING is the known CPU-detector advisory |
+| Restart loop | ✅ none | RestartCount 0; single clean start |
+| Person detection | ✅ unchanged | `detection_enabled True`, `camera_fps 5.0`, `detection_fps 17.0`, 0 frame errors |
+| Sample stream ingests | ✅ | `front_door` from looped `known-person-walk.mp4` |
+
+### Regression (T020–T025, full harness with face recognition ON)
+
+`tests/phase1/run_harness.sh all` → **OVERALL PASS** (harness unchanged):
+
+- **PERSON_PRESENT**: 27 person events; first `update|person|0.82421875` within 30 s.
+- **PERSON_NOT_DETECTED**: 0 person events in 45 s on the no-person clip, ingestion healthy.
+- **MEDIA_DECODE_FAILURE / STREAM_FAILURE / EVENT_DELIVERY_FAILURE**: all classified
+  distinctly (never collapsed; constitution IV.3).
+- **Identity-unavailable recovery**: after stopping Frigate, 21 person events on restart —
+  recovery without rebuilding anything.
+- **MQTT**: payload contract unchanged (T024 shape; `sub_label` null); broker saw 3
+  clients connected (frigate, throwaway HA, ring-mqtt); HA's MQTT client
+  (`2gRHKDfaKQqYvD5ASZhnVf`, 172.20.0.4) still connected.
+- **Throwaway HA**: reachable (HTTP 302), MQTT sensor path intact.
+- **ring-mqtt**: untouched, idle — no live Ring stream involved in T032.
+
+### No-enrollment behavior (empty face library)
+
+- Live `frigate/events` capture during the person loop with face recognition enabled:
+  `label=person`, **`sub_label=None`**, scores 0.65–0.84 — the base person event is
+  preserved and **no named identity is fabricated** (FR-002, FR-005).
+- Frigate `/api/events` independently confirms `label=person, sub_label=None` with
+  snapshots; face library dir `/media/frigate/clips/faces/` is **empty** (0 entries) —
+  no enrollment, no biometric data created.
+- **Failure isolation (constitution III.3/IV.3)**: the person event exists regardless of
+  face-match outcome — face recognition being unable to match (empty library) does not
+  suppress or alter the base person event.
+
+### Privacy
+
+No enrollment photos added; no identities created; no biometric embeddings or face
+library tracked (face dir empty, inside the container's own storage); no config secrets;
+sample media remains gitignored (verified `git check-ignore`). Only
+`frigate/config/config.yml` changed (the `face_recognition:` block + comment updates).
+
 ## Blocking issues
 
 1. ~~Sample media required (T008 / PD-06 / PD-07)~~ — **RESOLVED 2026-09-09**: approved sample media placed under `tests/phase1/test-media/`; PD-06/PD-07 now PASS. Photos: 4 JPGs (under the 5-10 requested — non-blocking, only needed at T034/Phase 3 enrollment). Videos: known-person clip (as `known-person-walk.mp4` + original `RingVideo_20260909_132147.MP4`), `RingVideo_20260909_132235.MP4` (person clip), and 2 derived no-person segments. No low-light or two-person clip supplied — not required for the PD-07 pass criteria and not blocking the gate; useful later for Phase 3/4 acceptance tests (T036, T050).

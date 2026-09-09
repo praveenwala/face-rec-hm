@@ -605,6 +605,51 @@ modules exist, and the full `run_harness.sh all` regression passes unchanged.
   `detect.width/height`, so no change was needed. `detect.enabled` stays honored as-is.
 - ffmpeg path unchanged (`/usr/lib/ffmpeg/7.0/bin/ffmpeg` present in the 0.17 image).
 
+## 13c. Face recognition enabled — no-enrollment verification (T032)
+
+Executed 2026-09-09. T032 enabled Frigate's **native face recognition, SMALL model only**
+(CPU — FaceNet embedding; the LARGE/ArcFace model requires GPU/NPU and stays
+production-only). **No identities are enrolled yet**, so the expected result is `Unknown` /
+no named match — the point of T032 is to prove the face-recognition runtime initializes
+safely and does **not** disturb the validated person-detection pipeline (FR-002, FR-005).
+
+Current tracked config (`frigate/config/config.yml`) contains the global block:
+
+```yaml
+face_recognition:
+  enabled: true
+  model_size: small
+  detection_threshold: 0.7   # min face-detection score to consider a face
+  unknown_score: 0.8         # min distance score to mark a potential match
+  recognition_threshold: 0.9 # min distance score to assign a known identity
+```
+
+All three thresholds are the **Frigate 0.17.2 defaults** written explicitly — conservative,
+favoring `Unknown` over a false identity (constitution II.2). They were deliberately **not**
+tuned (T033 is the dedicated threshold task). To re-verify the no-enrollment state:
+
+```bash
+# 1. Face-recognition subsystem initializes (embedding process + small-model files)
+docker compose logs frigate | grep -E "Embedding process|facedet.onnx|facenet.tflite|landmarkdet"
+
+# 2. Face library must be empty (no enrollment, no biometric data)
+docker exec face-rec-phase1-frigate sh -c 'ls /media/frigate/clips/faces/ | wc -l'   # → 0
+
+# 3. Person events flow with sub_label null (no fabricated identity)
+mosquitto_sub -h 127.0.0.1 -p 1883 -t 'frigate/events' -C 5 -W 40 \
+  | python3 -c "import sys,json; [print(json.loads(l)['after']['label'], json.loads(l)['after']['sub_label']) for l in sys.stdin]"
+#   → every line prints: person None
+
+# 4. Full regression still green with face recognition enabled
+ tests/phase1/run_harness.sh all   # → OVERALL: PASS
+```
+
+**Observed 2026-09-09**: `Embedding process started` + `Downloading complete` for
+`facedet.onnx`/`facenet.tflite`/`landmarkdet.yaml`; face library dir empty; person events
+flow at scores 0.65–0.84 with `sub_label: null`; harness OVERALL PASS; container healthy,
+RestartCount 0. **Do not enroll faces or create identities here** — that is T034+, and the
+enrollment-quality photo gate applies before it.
+
 ## 14. Restarting later
 
 ```bash

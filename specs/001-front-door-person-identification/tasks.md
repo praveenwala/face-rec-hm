@@ -240,8 +240,21 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
   `GO2RTC_ALLOW_ARBITRARY_EXEC=true` added for the local sample-loop (dev-only),
   config auto-migrated to `version: 0.17-0` — PD-09 re-classified **`PD09_PASS`**; T032
   actionable pending explicit approval**
-- [ ] T032 [P] [US2] Enable Frigate's native face-recognition feature in
-  `frigate/config/config.yml` (research.md #9; constitution VI.2) (depends on: T031)
+- [x] T032 [P] [US2] Enable Frigate's native face-recognition feature in
+  `frigate/config/config.yml` (research.md #9; constitution VI.2) (depends on: T031) —
+  **PASS 2026-09-09**: global `face_recognition:` block added (`enabled: true`,
+  `model_size: small` — FaceNet, CPU-only; large/ArcFace stays production-only).
+  Thresholds are the Frigate 0.17.2 defaults written explicitly (detection 0.7 /
+  unknown 0.8 / recognition 0.9) — conservative, favor Unknown (FR-005/FR-006,
+  constitution II.2); NOT tuned (T033 is the tuning task). Small-model files downloaded
+  and `Embedding process` started on restart; no AVX/dependency errors; container
+  healthy, restart count 0. Full `run_harness.sh all` regression OVERALL PASS
+  (27 person events positive, 0 negative, all five classifications distinct); MQTT
+  payload contract unchanged with `sub_label: null`; throwaway HA still connected and
+  receiving events. **No-enrollment behavior proven**: face library
+  (`/media/frigate/clips/faces/`) empty, no named identity produced, no false identity
+  fabricated — expected Unknown/no-match semantics with an empty library (FR-002,
+  FR-005). T033 (threshold tuning) remains pending
 - [ ] T033 [P] [US2] Set the starting confidence threshold conservatively, favoring `Unknown`
   (research.md #9; FR-005, FR-006) (depends on: T032)
 - [ ] T034 [US6] Enroll the first Known Identity from the approved reference photos (stored

@@ -29,13 +29,26 @@ holds, and an isolated probe confirms `face_recognition` config with `model_size
 accepted (FEATURE_PRESENT = YES). One 0.17 breaking change is handled locally: go2rtc
 `exec:` sources are blocked by default, so the dev POC sets
 `GO2RTC_ALLOW_ARBITRARY_EXEC=true` **for the local sample-media loop only** — production
-(Phase 5) must use plain RTSP sources and must NOT set it. Constitution Phase 3 (T032+) is
-now actionable pending explicit approval — face recognition itself is still NOT enabled.
+(Phase 5) must use plain RTSP sources and must NOT set it.
 
-There is still no application source code — only configuration (Docker Compose, Frigate,
-Mosquitto), scripts (`scripts/loop-test-video.sh`), and documentation. Once T020+ begins, all
-identity/relationship/notification logic is implemented as Home Assistant
-automations/Jinja2 templates, not custom application code (per the plan's Technical Context).
+**T032 (enable native face recognition, small model) has been executed and passed.**
+`frigate/config/config.yml` now has a global `face_recognition:` block
+(`enabled: true, model_size: small` — FaceNet, CPU-only; large/ArcFace stays
+production-only), with the Frigate 0.17.2 conservative defaults written explicitly
+(detection 0.7 / unknown 0.8 / recognition 0.9 — favor `Unknown`, constitution II.2; NOT
+tuned — T033 is the tuning task). The subsystem initializes cleanly (embedding process,
+small-model files downloaded, `/media/frigate/clips/faces/` created), the full
+`run_harness.sh all` regression remains OVERALL PASS with face recognition on, MQTT
+payloads keep `sub_label: null`, and the throwaway HA still receives events. **No
+identities are enrolled** — the face library is empty and the expected result is
+`Unknown` / no named match (FR-002/FR-005). T033 (conservative threshold tuning for
+enrolled identities) is next, pending explicit approval.
+
+This repo has no application source code yet — only configuration (Docker Compose,
+Frigate, Mosquitto), scripts (`scripts/loop-test-video.sh`), and documentation. Identity/
+relationship/notification logic, once implemented (T043+), will be Home Assistant
+automations/Jinja2 templates, not custom application code (per the plan's Technical
+Context).
 
 ## Local Test Documentation Gate
 
@@ -115,5 +128,7 @@ Work is expected to proceed in this order; check which phase is current before s
    OpenVINO).
 7. **Phase 6 – Expansion**: add other Ring cameras after Front Door accuracy is proven.
 
-This repo is currently pre-Phase-1: no Docker/Frigate config, no face library, and no Home Assistant
-automation code exist here yet.
+This repo is currently mid-Constitution-Phase-3: the person-detection MVP (Phase 3),
+Ring-stream integration (Phase 4), and face-recognition enablement (T032, Phase 5) are
+complete; no face library exists yet (empty library, no enrollment) and no Home Assistant
+automation code exists here yet.
