@@ -1,0 +1,17 @@
+# OS
+.DS_Store
+
+# Secrets / credentials — never commit these (constitution Principle II.4)
+.env
+.env.*
+!.env.example
+*secrets*
+!*secrets*.example
+
+# Identity/face data — never commit biometric data (constitution Principle II.4/II.5)
+identity-library/
+face-library/
+*.face
+
+# Local tooling
+*.log
