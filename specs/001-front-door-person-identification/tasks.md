@@ -55,10 +55,12 @@ scaffolding (plan.md's Project Structure).
   `home-assistant/helpers/relationship_mapping.yaml` (the real file) while still allowing
   `relationship_mapping.yaml.example` — the current `.gitignore` only has generic
   `*secrets*`/`identity-library/` patterns, not this specific path (constitution II.4)
-- [ ] T008 **BLOCKED — awaiting user-provided sample media.** Collect and place sample test
-  media under `tests/phase1/test-media/` per `pre-development-validation.md` §5 (5-10
-  enrollment photos of one person; 3-5 short videos: known-person walk, unknown-person walk,
-  no-person motion, low-light, optional two-person)
+- [x] T008 Collect and place sample test media under `tests/phase1/test-media/` per
+  `pre-development-validation.md` §5 — **COMPLETE 2026-09-09**: approved media physically
+  present (4 enrollment JPGs under `photos/`; videos `known-person-walk.mp4`,
+  `videos/RingVideo_20260909_132147.MP4`, `videos/RingVideo_20260909_132235.MP4`, and 2
+  derived no-person segments). All gitignored. Photo count (4) below the 5-10 request and no
+  low-light/two-person clip — non-blocking observations, recorded in validation-report.md
 
 ---
 
@@ -87,28 +89,33 @@ scaffolding (plan.md's Project Structure).
   during execution (port 5000 conflict, `/media` mount collision, go2rtc `exec:` producer
   syntax); ingestion mechanics proven via a synthetic non-biometric clip; real-clip run still
   needs T008
-- [ ] T014 **BLOCKED on T008.** Execute PD-06 Media Validation: probe/decode every file under
+- [x] T014 Execute PD-06 Media Validation: probe/decode every file under
   `tests/phase1/test-media/` with ffprobe per `pre-development-validation.md` §6; record
-  results in `validation-report.md` (depends on: T008)
-- [ ] T015 **PARTIAL — mechanism proven, real clip blocked on T008.** Run
-  `scripts/loop-test-video.sh` and confirm Frigate ingests the RTSP source (depends on: T005,
-  T013, T014)
-- [ ] T016 **BLOCKED on T008/T015.** Execute PD-07 Person Detection Validation: feed the
-  known-person and no-person clips, confirm `frigate/events` fires correctly for the former
-  and not for the latter (depends on: T015)
+  results in `validation-report.md` (depends on: T008) — **PASS**: all 10 files probed and
+  decode-tested OK, no normalization needed; full inventory table in `validation-report.md`
+- [x] T015 Run `scripts/loop-test-video.sh` and confirm Frigate ingests the RTSP source
+  (depends on: T005, T013, T014) — **PASS**: loop script probes+decodes the real clip (exit
+  0); Frigate ingests at `camera_fps 5.0` / `detection_fps 12.4`; person events flow on
+  `frigate/events`
+- [x] T016 Execute PD-07 Person Detection Validation: feed the known-person and no-person
+  clips, confirm `frigate/events` fires correctly for the former and not for the latter
+  (depends on: T015) — **PASS**: person-positive clip → 12 `person`-labeled events in 60 s
+  (full new/update/end lifecycle, scores 0.65-0.84); no-person clip → 0 events in 60 s while
+  ingestion stayed healthy; config reverted to known-person clip and re-verified
 - [x] T017 Stand up the throwaway Home Assistant container from `docker-compose.yml`; confirm
   it is reachable and is a separate instance from the production Pi-hosted HA (research.md
   #10) (depends on: T003) — **PASS**
-- [ ] T018 **PARTIAL — broker/instance mechanics proven; event-visibility check blocked on
-  T016.** Execute PD-08 in its mechanics-only scope (research.md #11): confirm the throwaway
+- [x] T018 Execute PD-08 in its mechanics-only scope (research.md #11): confirm the throwaway
   HA sees at least one Frigate-generated event/entity — this does **not** attempt the
   "existing Ring automations unaffected" check, which is deferred to T053 (depends on: T016,
-  T017)
-- [ ] T019 **FAIL (incomplete) — see validation-report.md.** Finalize `validation-report.md`
-  with PASS/FAIL for PD-01–PD-08 and an explicit PD-09 (face-recognition hardware) deferral
-  note (pre-development-validation.md PD-10) — the report is written and the gate result is
-  recorded, but the gate itself does not pass until T008/T014/T016/T018 clear —
-  **GATE: this must PASS before any Phase 3 task starts**
+  T017) — **PASS**: MQTT config entry (`mosquitto:1883`) live; HA's MQTT client connected;
+  `sensor.frigate_events_test` entity registered and updating to `person` at live timestamps
+  matching Frigate's event cadence (see validation-report.md PD-08)
+- [x] T019 Finalize `validation-report.md` with PASS/FAIL for PD-01–PD-08 and an explicit
+  PD-09 (face-recognition hardware) deferral note (pre-development-validation.md PD-10) —
+  **PASS 2026-09-09**: PD-01–PD-08 all green, PD-09 deferred to Phase 3 (T031) per the
+  sanctioned disposition. **GATE CLEARED — Phase 3 (Constitution Phase 1, T020+) may now
+  start**
 
 **Checkpoint**: Pre-development validation gate passes. Only now may Constitution Phase 1
 implementation (below) begin.

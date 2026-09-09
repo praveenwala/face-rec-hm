@@ -78,7 +78,7 @@
 
 ### Known, expected remaining condition (not a bug)
 
-With the config fixes above, the *only* remaining error in Frigate's logs for the `front_door` camera is `ffmpeg` failing to open `/media/test-source/known-person-walk.mp4` because that file does not exist yet — **T008 is still pending your sample media.** Frigate handles this gracefully (per-camera capture retry, not a container crash or restart loop), which is itself a good sign for constitution IV.2 ("every external dependency needs a failure state").
+With the config fixes above, the *only* remaining error in Frigate's logs at the time was `ffmpeg` failing to open `/media/test-source/known-person-walk.mp4` because that file did not exist yet — **T008 was pending.** Frigate handled it gracefully (per-camera capture retry, not a container crash or restart loop), a good sign for constitution IV.2 ("every external dependency needs a failure state"). **Resolved 2026-09-09**: T008 placed the file at that exact path; Frigate now ingests it with zero errors (see PD-07).
 
 ### Infrastructure ingestion proof (not a person-detection test)
 
@@ -88,20 +88,58 @@ To confirm the actual streaming mechanics work end-to-end independent of T008, a
 
 ## PD-06 — Media Validation
 
-**Status: BLOCKED.** No approved sample media has been provided yet (T008). Per your explicit instruction, no biometric test media was fabricated or substituted. Nothing to probe/decode/normalize/report on until you provide the photos and videos requested below.
+**Status: PASS** (T008 provided sample media; every file probed and decode-tested with ffprobe/ffmpeg per §6 — nothing silently skipped, no normalization required).
+
+| File | Container | Codec | Resolution | FPS (nominal) | Duration | Decode | Normalize needed? |
+|---|---|---|---|---|---|---|---|
+| `known-person-walk.mp4` (root) | MP4 (mov,mp4,m4a…) | H.264 + AAC | 1536×1536 | 120/1 | 25.66 s | OK | No |
+| `videos/RingVideo_20260909_132147.MP4` | MP4 | H.264 + AAC | 1536×1536 | 120/1 | 25.66 s | OK | No |
+| `videos/RingVideo_20260909_132235.MP4` | MP4 | H.264 + AAC | 1536×1536 | 24/1 | 31.79 s | OK | No |
+| `videos/derived-no-person-segment-1.mp4` | MP4 | H.264 + AAC | 1536×1536 | 15/1 | 3.05 s | OK | No |
+| `videos/derived-no-person-segment-2.mp4` | MP4 | H.264 + AAC | 1536×1536 | 24/1 | 3.05 s | OK | No |
+| `_synthetic_infra_check.mp4` (root) | MP4 | H.264 | 1280×720 | 15/1 | 5.00 s | OK | No |
+| `photos/269a32ab-…-630187.jpg` | JPEG (image2) | MJPEG | 639×958 | 25/1 | 0.04 s (still) | OK | No |
+| `photos/IMG_0108.jpg` | JPEG | MJPEG | 539×958 | 25/1 | 0.04 s (still) | OK | No |
+| `photos/IMG_6916.jpg` | JPEG | MJPEG | 539×958 | 25/1 | 0.04 s (still) | OK | No |
+| `photos/IMG_8531.jpg` | JPEG | MJPEG | 1277×958 | 25/1 | 0.04 s (still) | OK | No |
+
+Notes:
+- `known-person-walk.mp4` is a byte-identical copy of `videos/RingVideo_20260909_132147.MP4` (same MD5 `1dd10282…`) placed at the exact path `frigate/config/config.yml`'s go2rtc `exec:` producer references — exactly the layout the testing guide prescribes.
+- The Ring videos report a 120/1 nominal frame rate (Ring's variable-rate capture); actual processing is unaffected — Frigate detect runs at a configured 5 fps and decoded fine.
+- `_synthetic_infra_check.mp4` is the non-biometric testsrc clip from T013's infrastructure-ingestion proof, left over in the media dir; it decodes fine and is not part of the biometric sample set.
+- Photos: 4 JPGs supplied (the §5 request asked for 5-10). Photos are not needed for this Foundational gate — they are consumed later at Phase 3 enrollment (T034) — so this is recorded as a non-blocking observation, not a failure.
+- All files are under the gitignored `tests/phase1/test-media/` dir; confirmed `git check-ignore` applies (biometric data never committed, constitution II.4/II.5).
 
 ## PD-07 — Person Detection Validation
 
-**Status: BLOCKED** (depends on PD-06 / T008). Cannot run the person-positive or person-negative test without real sample video.
+**Status: PASS** (T015 loop/ingest + real sample clips).
+
+### Person-positive test (known-person clip)
+
+- `scripts/loop-test-video.sh tests/phase1/test-media/known-person-walk.mp4` → probe OK, decode OK, exit 0 (T015).
+- `frigate/config/config.yml`'s go2rtc `exec:` producer loops `known-person-walk.mp4`; Frigate ingests it: `camera_fps: 5.0`, `process_fps: 5.2`, `detection_fps: 12.4`, `detection_enabled: True` via `/api/stats`.
+- Subscribed to `frigate/events` on the Phase 1 broker for 60 s: **12 events, every one `label=person`** on camera `front_door`, full `new` → `update` → `end` lifecycle, detection scores 0.65–0.84. PD-07 criteria 1 and 2 (person video ingested → person detection produced) **PASS**.
+- Frigate's own `/api/events` API independently confirms the same person events with start/end timestamps.
+
+### Person-negative test (no-person clip)
+
+- Temporarily pointed the go2rtc `exec:` producer at `videos/derived-no-person-segment-1.mp4`, restarted Frigate, confirmed healthy ingestion (`camera_fps: 5.0`, `detection_fps: 8.6`, zero error lines in logs).
+- Subscribed to `frigate/events` for 60 s during that window: **0 events of any label** — and the previous person event's `end` timestamp (1788979215.73) predates the negative-test restart (~1788979241), so the window was genuinely clean. PD-07 criterion 3 (no-person video produces no false identity event) **PASS**.
+- Reverted the config to `known-person-walk.mp4` and re-verified: person events resume (2 `new` person events in 40 s) — the revert is confirmed working, leaving the pipeline in the person-positive state.
+- PD-07 criterion 4 (event timing and logs inspectable) **PASS** — timestamps/scores recorded above are all available from MQTT payloads, `/api/events`, and `docker compose logs`.
+
+Detection engine: Frigate's CPU detector (`frigate.detectors WARNING: CPU detectors are not recommended…`) — expected and acceptable for this Phase 1 POC (production target is OpenVINO on a dedicated host, Phase 5 scope).
 
 ## PD-08 — Home Assistant Integration Validation (mechanics-only scope)
 
-- Throwaway Home Assistant container started (`ghcr.io/home-assistant/home-assistant:2024.12.5`), separate from the production instance at `192.168.68.103`: **PASS** — reachable at `http://localhost:8124/` (HTTP 302 to onboarding, expected for a fresh instance)
+- Throwaway Home Assistant container started (`ghcr.io/home-assistant/home-assistant:2024.12.5`), separate from the production instance at `192.168.68.103`: **PASS** — reachable at `http://localhost:8124/` (HTTP 302 to onboarding; onboarded as local-only user "Phase1 Test Admin" during T017, disposable)
 - Frigate and the throwaway HA share the same isolated MQTT broker: **PASS** (both point at the `mosquitto` service in `docker-compose.yml`)
-- At least one Frigate-generated event/entity visible in the throwaway HA: **NOT YET RUN** — this requires the Frigate HA integration to be configured inside the throwaway instance, which in turn is most meaningfully exercised once real person-detection events exist (T008/T016). Deferred to resume immediately after T008/T016 unblock.
+- MQTT config entry present in the throwaway HA (`core.config_entries`: domain `mqtt`, title `mosquitto`, `broker: mosquitto`, `port: 1883`, created 2026-09-09 18:33:23Z). Note: the broker host/port must be set via this config entry, not YAML — the original `configuration.yaml` `mqtt: broker:/port:` keys raise "Invalid config for 'mqtt'" in HA 2024.x (found and fixed during T018; the YAML now declares only the sensor platform).
+- HA's MQTT client connected to the broker: **PASS** — mosquitto log shows `New client connected … as 2gRHKDfaKQqYvD5ASZhnVf` from `172.20.0.4` (the ha-throwaway container), still connected (no disconnect logged).
+- At least one Frigate-generated event/entity visible in the throwaway HA: **PASS** — sensor `sensor.frigate_events_test` (platform `mqtt`, `unique_id: frigate_events_test`, state topic `frigate/events`) is registered in the HA entity registry, and its states table (`home-assistant_v2.db`) shows repeated `person` values at live timestamps (e.g. 11:42:56 → 11:43:42 local) matching Frigate's person-event cadence. PD-08 criterion 3 satisfied.
 - "Existing Ring automations remain unaffected" check: **deliberately out of scope here** — a blank throwaway HA has no existing automations to protect; the real check happens later against production HA (research.md #11, tasks.md T053).
 
-**Status: PARTIAL** (broker/instance mechanics proven; event-visibility check waiting on T008/T016)
+**Status: PASS** (mechanics scope; the production-isolation criterion remains deferred to T053 by design).
 
 ## PD-09 — Face Recognition Hardware Gate
 
@@ -111,23 +149,14 @@ To confirm the actual streaming mechanics work end-to-end independent of T008, a
 
 ## PD-10 — No Development Before Green Baseline
 
-**T019 gate result: FAIL (incomplete).** PD-01 through PD-05 and PD-08's mechanics pass; PD-06 and PD-07 are blocked on user-provided sample media (T008); PD-08's full scope and PD-09 have downstream dependencies not yet met. Per the constitution and your explicit instructions, implementation tasks (T020+) do not begin until this gate passes in full.
+**T019 gate result: PASS.** PD-01 through PD-08 now pass in full (see each section above for evidence); PD-09 remains explicitly **deferred** to Phase 3 (T031), which is the sanctioned disposition per PD-10 ("PD-09 has either passed or has been explicitly deferred to supported hardware"). Per the constitution and your explicit instructions, implementation tasks (T020+) may now begin.
 
 ## Blocking issues
 
-1. **Sample media required (T008 / PD-06 / PD-07)** — see the request below. This is the single blocker preventing T019 from fully passing.
+1. ~~Sample media required (T008 / PD-06 / PD-07)~~ — **RESOLVED 2026-09-09**: approved sample media placed under `tests/phase1/test-media/`; PD-06/PD-07 now PASS. Photos: 4 JPGs (under the 5-10 requested — non-blocking, only needed at T034/Phase 3 enrollment). Videos: known-person clip (as `known-person-walk.mp4` + original `RingVideo_20260909_132147.MP4`), `RingVideo_20260909_132235.MP4` (person clip), and 2 derived no-person segments. No low-light or two-person clip supplied — not required for the PD-07 pass criteria and not blocking the gate; useful later for Phase 3/4 acceptance tests (T036, T050).
 2. Production HA (192.168.68.103) was not TCP-reachable from this Mac at inventory time on ports 8123/1883 — not a Phase 1 blocker, but worth checking before Phase 4 (T052).
 3. Free disk is at 16 GB free — not currently blocking, but worth monitoring once Frigate's clip/recording storage and larger sample media are in use.
 
 ## Media request (per pre-development-validation.md §5)
 
-**Photos** — 5-10 of one person you're authorized to enroll: 2-3 clear front-facing daylight, 1-2 indoor, 1-2 mild expression variation, 1 mild angle variation.
-
-**Videos** — 3-5 clips, ~5-30s each:
-1. known person walking toward the camera
-2. unknown/untrained person walking toward the camera
-3. ordinary motion, no person
-4. low-light/evening person clip
-5. optional: two people together
-
-Place them under `tests/phase1/test-media/` (already gitignored — confirmed via `.gitignore`, never committed). Suggested filenames matching what's already referenced in `frigate/config/config.yml` and `.env.example`: `known-person-walk.mp4`, `unknown-person-walk.mp4`, `no-person-motion.mp4`, `low-light-person.mp4`, plus the enrollment photos in a subfolder of your choice.
+**STATUS: SATISFIED (2026-09-09)** — see the PD-06 inventory table for the full file list with probe/decode results.

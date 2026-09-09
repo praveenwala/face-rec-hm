@@ -4,13 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Feature `001-front-door-person-identification` has a ratified spec, plan, and tasks.md, and is
-mid-way through its Foundational/pre-development validation gate (tasks T009–T019 in
-`specs/001-front-door-person-identification/tasks.md`). The Phase 1 Mac POC environment
+Feature `001-front-door-person-identification` has a ratified spec, plan, and tasks.md, and has
+**completed its Foundational/pre-development validation gate (T019 = PASS)** — PD-01–PD-08 are
+green in `specs/001-front-door-person-identification/validation-report.md` (sample media now
+present under gitignored `tests/phase1/test-media/`; person detection and throwaway-HA event
+visibility proven on the local Phase 1 POC). The Phase 1 Mac POC environment
 (`docker-compose.yml`: Mosquitto + Frigate + a throwaway Home Assistant container) exists and
 runs locally — see `docs/testing/local-mac-testing.md` for how to start it and what to check.
-**T019 is a hard gate: no feature implementation task (T020+) may start until it passes** — it
-is currently blocked on user-provided sample media (T008). Check
+The hard gate (no T020+ until T019 passes) is now cleared; Constitution Phase 1 tasks (T020–
+T026) are actionable. Check
 `specs/001-front-door-person-identification/validation-report.md` for the current,
 authoritative pass/fail state.
 
