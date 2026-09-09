@@ -224,8 +224,16 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
 
 **Independent Test**: spec.md US2's and US6's Independent Tests.
 
-- [ ] T031 Execute PD-09: verify the pinned Frigate version's documented face-recognition
-  requirements against the confirmed Intel host; record result in `validation-report.md`
+- [x] T031 Execute PD-09: verify the pinned Frigate version's documented face-recognition
+  requirements against the confirmed Intel host; record result in `validation-report.md` —
+  **PASS (read-only gate executed), classification `PD09_FAIL_FRIGATE_BUILD`**: host
+  hardware fully satisfies the documented AVX+AVX2 requirement (raw `AVX1.0`/`AVX2` flags
+  verified; native x86_64 end-to-end incl. Docker), but the pinned image
+  `ghcr.io/blakeblackshear/frigate:0.15.1` contains **no native face-recognition code**
+  (introduced in Frigate 0.16.0; isolated config probe: `face_recognition:` block rejected
+  as `extra_forbidden`). Phase 3 (T032+) therefore requires upgrading the pinned Frigate
+  image to 0.16+ (small model, CPU-only) — an explicit dependency decision pending user
+  review
 - [ ] T032 [P] [US2] Enable Frigate's native face-recognition feature in
   `frigate/config/config.yml` (research.md #9; constitution VI.2) (depends on: T031)
 - [ ] T033 [P] [US2] Set the starting confidence threshold conservatively, favoring `Unknown`

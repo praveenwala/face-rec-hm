@@ -561,6 +561,38 @@ harness still passes: `tests/phase1/run_harness.sh all`.
 | Stream never stops | A client (e.g. Frigate's go2rtc producer) is still connected — remove the temporary Frigate camera/stream and restart Frigate |
 | Low-power camera snapshot timeouts | Expected for battery cameras (`TimeoutError ... failed to retrieve updated interval snapshot`) — ring-mqtt wiki documents this limitation |
 
+## 13b. PD-09 face-recognition hardware gate (T031, read-only)
+
+Executed 2026-09-09. Purpose: determine whether **this Mac** can run Frigate's native
+face-recognition runtime. No enrollment, no face library, no config change.
+
+```bash
+# 1. Host architecture
+uname -m                                   # → x86_64
+sysctl -n machdep.cpu.brand_string         # → Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz
+
+# 2. CPU instruction set (raw flags — macOS reports AVX as "AVX1.0")
+sysctl -n machdep.cpu.features             # AVX1.0, FMA, SSE4.2 present
+sysctl -n machdep.cpu.leaf7_features       # AVX2 present
+
+# 3. Docker/container architecture (no emulation path)
+docker run --rm alpine uname -m            # → x86_64
+docker info                                # Architecture: x86_64, OSType: linux
+
+# 4. Frigate build capability probe (read-only, in-container)
+docker exec face-rec-phase1-frigate sh -c 'grep -rl "face_recognition" /opt/frigate/frigate/ | grep -v test'
+#   → (no output: feature absent in the pinned 0.15.x build)
+```
+
+**Result (2026-09-09):** hardware fully satisfies Frigate's documented AVX+AVX2
+face-recognition requirement (both flags present; native x86_64 end-to-end), **but the
+pinned Frigate build `0.15.1` does not contain the feature** — native face recognition was
+introduced in Frigate **0.16.0** (2025-08). An isolated config probe confirmed
+`FrigateConfig` **rejects** a `face_recognition:` block
+(`extra_forbidden` — not a schema field in 0.15.x). Classification:
+`PD09_FAIL_FRIGATE_BUILD`. Unblocking Phase 3 requires upgrading the pinned Frigate image to
+0.16+ (small model, CPU-only) — an explicit decision for the user, not made here.
+
 ## 14. Restarting later
 
 ```bash
@@ -707,5 +739,7 @@ not this checklist.
 - [x] T029 live person detected on the Ring stream (score ≈ 0.76, sub_label null)
 - [x] T030 Phase 2 documented (this guide §13a + validation-report.md)
 - [x] bounded test torn down; sample-media mode restored (see §13a steps 8–9)
+- [x] T031 PD-09 hardware gate executed (read-only): AVX/AVX2 present, x86_64 native,
+  Frigate 0.15.1 build lacks native face recognition → `PD09_FAIL_FRIGATE_BUILD` (see §13b)
 
 **DO NOT START T031 UNTIL the Phase 4 checkpoint is confirmed PASS.**

@@ -19,9 +19,14 @@ Phase 2 live tests used short deliberate windows and the Frigate config was rest
 looped sample-media source afterward (`docs/testing/local-mac-testing.md` §13a). Ring auth
 (2FA refresh token) lives in gitignored `ring-mqtt/data/`.
 
-Constitution Phase 3 tasks (T031+) are **NOT yet started** — they are blocked on the Phase 4
-checkpoint (this feature's Phase 2 ring streaming) having passed (it has) AND on PD-09
-(face-recognition hardware gate, T031).
+**T031 (PD-09 face-recognition hardware gate) has been executed — classification
+`PD09_FAIL_FRIGATE_BUILD`.** This host fully satisfies Frigate's documented AVX+AVX2
+face-recognition requirement (raw `AVX1.0`/`AVX2` CPU flags verified; native x86_64 Docker),
+but the pinned Frigate image `0.15.1` does **not** contain native face recognition (that
+feature arrived in Frigate 0.16.0; an isolated config probe rejects a `face_recognition:`
+block as `extra_forbidden`). Constitution Phase 3 (T032+) is therefore **blocked on a
+Frigate 0.16+ image upgrade** — an explicit dependency decision for the user — not on
+hardware.
 
 There is still no application source code — only configuration (Docker Compose, Frigate,
 Mosquitto), scripts (`scripts/loop-test-video.sh`), and documentation. Once T020+ begins, all

@@ -143,13 +143,46 @@ Detection engine: Frigate's CPU detector (`frigate.detectors WARNING: CPU detect
 
 ## PD-09 — Face Recognition Hardware Gate
 
-**Status: DEFERRED.** Per tasks.md, this is explicitly Phase 3's task (T031), not part of this Foundational gate. What's already known: this host is Intel x86_64 (`i9-9980HK`), which is the correct CPU family for Frigate's AVX/AVX2 requirement, confirmed via `/grill-me` earlier in this project. The specific AVX2 instruction-set check against the *pinned Frigate version's documented requirements* has **not** been performed and is intentionally left to T031, not assumed here.
+**Status: EXECUTED at T031 (2026-09-09) — result `PD09_FAIL_FRIGATE_BUILD`** (hardware
+components all pass; the pinned Frigate **build** lacks the feature).
 
-`FACE_RECOGNITION_LOCAL = DEFERRED_PENDING_PHASE_3_VERIFICATION` (not yet `READY`, not asserted `UNSUPPORTED` — genuinely not yet checked against documented requirements, only the CPU family is known).
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| Host architecture | ✅ PASS | `uname -m` → `x86_64`; `uname -a` → Darwin x86_64; `machdep.cpu.brand_string` → `Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz` |
+| AVX | ✅ PASS | `machdep.cpu.features` contains `AVX1.0` (macOS naming) + `FMA`, `SSE4.2` |
+| AVX2 | ✅ PASS | `machdep.cpu.leaf7_features` contains `AVX2` (raw flag, not assumed from CPU gen) |
+| Docker/container arch | ✅ PASS | `docker run --rm alpine uname -m` → `x86_64`; `docker info` Architecture x86_64, OSType linux, Docker Desktop 29.4.3 — native, no emulation |
+| Frigate build capability | ❌ FAIL | Running image `ghcr.io/blakeblackshear/frigate:0.15.1` (in-container version `0.15.0-6cb5cfb`): **zero** `face_recognition` references in `/opt/frigate/frigate/` (non-test). Native face recognition was introduced in **Frigate 0.16.0** (2025-08). Isolated config probe: `FrigateConfig.parse_yaml` with a `face_recognition:` block → `ValidationError: Extra inputs are not permitted [type=extra_forbidden]` — the key is not a schema field in 0.15.x |
+
+### Requirements (authoritative Frigate docs, face-recognition page)
+
+- **REQUIRED**: CPU with AVX + AVX2 instructions. ✅ present on this host.
+- **small model** (FaceNet embedding, CPU): no accelerator required — "most CPUs should run
+the model efficiently". ✅ viable on this Mac.
+- **large model** (ArcFace embedding): GPU/NPU **required** (integrated or discrete). ⚠ not
+viable on this Mac's iGPU — large model must wait for production hardware.
+- Face recognition is a **global** config setting; Frigate must detect a person before a face.
+
+### Classification
+
+`PD09_FAIL_FRIGATE_BUILD` — this host is **not** the blocker (CPU, AVX, AVX2, Docker all
+satisfy the documented requirements); the **pinned Frigate image (0.15.1) does not ship the
+face-recognition feature**. Unblocking Phase 3 (T032+) requires upgrading the pinned Frigate
+image to 0.16+ (small model, CPU-only) — an explicit dependency decision, not made by T031.
+Per PD-09's own rule, face-recognition work must not proceed until the runtime that contains
+the feature is pinned and re-verified on supported hardware.
 
 ## PD-10 — No Development Before Green Baseline
 
-**T019 gate result: PASS.** PD-01 through PD-08 now pass in full (see each section above for evidence); PD-09 remains explicitly **deferred** to Phase 3 (T031), which is the sanctioned disposition per PD-10 ("PD-09 has either passed or has been explicitly deferred to supported hardware"). Per the constitution and your explicit instructions, implementation tasks (T020+) may now begin.
+**T019 gate result: PASS.** PD-01 through PD-08 now pass in full (see each section above for evidence); PD-09 was explicitly **deferred** to Phase 3 (T031) at gate time, which was the sanctioned disposition per PD-10 ("PD-09 has either passed or has been explicitly deferred to supported hardware"). Per the constitution and your explicit instructions, implementation tasks (T020+) may now begin.
+
+**Update (T031, 2026-09-09):** PD-09 has now been **executed** with classification
+`PD09_FAIL_FRIGATE_BUILD` — hardware passes, the pinned Frigate build lacks the feature (see
+PD-09 section above). Per PD-09's rule, face-recognition validation must not proceed until a
+Frigate runtime that actually contains native face recognition is pinned and re-verified on
+this (satisfying) host.
 
 ## Phase 3 (Constitution Phase 1) — Person Detection MVP evidence (T020–T026)
 
