@@ -13,5 +13,33 @@ identity-library/
 face-library/
 *.face
 
+# Sample/test media (photos, videos) and Frigate's own data volume — never commit
+# household biometric data, per constitution II.4/II.5 and pre-development-validation.md §5
+tests/phase1/test-media/
+test-data/
+frigate/data/
+frigate/media/
+frigate/clips/
+frigate/recordings/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.heif
+!docs/**/*.png
+!docs/**/*.jpg
+
+# Real relationship mapping — contains household names; only the .example template is tracked
+home-assistant/helpers/relationship_mapping.yaml
+!home-assistant/helpers/relationship_mapping.yaml.example
+
+# Home Assistant credentials/tokens if ever staged locally
+home-assistant/**/secrets.yaml
+home-assistant/**/.storage/
+
 # Local tooling
 *.log
