@@ -60,5 +60,12 @@ frigate/config/*
 *.db-shm
 *.db-wal
 
+# ring-mqtt bridge runtime state (Phase 2, Constitution Phase 2) — config.json holds
+# global config, ring-state.json holds the Ring refresh token (full account access).
+# Both are created by the interactive init-ring-mqtt.js CLI and MUST never be committed
+# (constitution II.4). Only ring-mqtt/README.md is tracked.
+ring-mqtt/data/
+ring-mqtt/config.json
+
 # Local tooling
 *.log

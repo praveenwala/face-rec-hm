@@ -16,7 +16,7 @@
 ```text
 Ring Front Door
         ↓
-Ring-MQTT / supported Ring video bridge
+ring-mqtt (Ring cloud bridge + local on-demand RTSP gateway)
         ↓
 go2rtc / RTSP
         ↓
@@ -39,6 +39,27 @@ run on different hosts with different responsibilities and different risk profil
   recognition actually run.
 
 They are never the same machine.
+
+### Ring bridge selection (Phase 2 validated: 2026-09-09)
+
+The validated bridge is **ring-mqtt** (`tsightler/ring-mqtt`, currently pinned `5.9.3` for
+the Mac POC — re-pin at production deployment per constitution VI.3). It authenticates to
+Ring cloud via a **refresh token** (2FA required; obtained interactively via the bundled
+`init-ring-mqtt.js` CLI) and exposes each Ring camera as a **local on-demand RTSP gateway**
+(`rtsp://<host>:8554/<camera_id>_live`, `<camera_id>` from device discovery, never
+invented). Proven on the Phase 2 Mac POC: live Front Door stream (Ring Doorbell Pro 4,
+H.264 720×720) ingested by Frigate, person detected, event delivered over MQTT — in
+bounded test windows.
+
+**Bounded-use constraint (NON-NEGOTIABLE for this project):** Ring cameras are
+cloud/on-demand devices. ring-mqtt explicitly does **not** support continuous/24x7
+streaming — while a Ring camera is actively streaming it stops sending motion/ding events,
+and sustained streaming drains batteries and risks overheating. Production MUST use an
+event-triggered workflow (start stream on motion/ding → bounded analysis window → stop).
+The Phase 2 Mac POC established this pattern; production must not regress to always-on
+Ring ingestion. Production MUST also enable `livestream_user`/`livestream_pass` RTSP
+credentials (not needed for the loopback-only Mac test, but required before exposing RTSP
+beyond a single host — constitution II.4).
 
 ---
 

@@ -434,6 +434,133 @@ To verify HA visibility yourself:
 **Do not modify your production Home Assistant to perform this test.** This section is about
 the throwaway instance only.
 
+## 13a. Phase 2: live Ring Front Door stream (bounded tests only)
+
+> ⚠️ **Ring cameras are cloud/on-demand devices.** Continuous/24x7 streaming via ring-mqtt is
+> **explicitly unsupported**: while a Ring camera is actively streaming it stops sending
+> motion/ding events, drains batteries, and risks overheating (ring-mqtt README/wiki).
+> Every live-stream test here is **bounded**: connect → test → disconnect → restore the
+> sample-media source. Never leave the Ring stream running between sessions.
+
+### Components
+
+- **ring-mqtt** (`tsightler/ring-mqtt:5.9.3`, `docker-compose.yml` `ring-mqtt` service) —
+  bridges Ring cloud → MQTT and exposes each camera as an on-demand local RTSP gateway
+  (bundled go2rtc). RTSP is bound to `127.0.0.1:18554` on this Mac (loopback-only; Frigate
+  reaches it internally at `rtsp://ring-mqtt:8554/`).
+- Persistent data: `ring-mqtt/data/` (gitignored) — `config.json` (global config) +
+  `ring-state.json` (**Ring refresh token — never commit, never share**).
+
+### 1. Starting ring-mqtt
+
+```bash
+docker compose up -d ring-mqtt
+```
+
+First run requires authentication first (step 2). `docker compose ps` should show
+`face-rec-phase1-ring-mqtt` `Up`; logs should end with `Device Discovery Complete` and
+`The go2rtc process was started successfully`.
+
+### 2. Authenticating safely (interactive, one-time)
+
+```bash
+mkdir -p ring-mqtt/data
+docker run -it --rm \
+  --mount type=bind,source="$(pwd)/ring-mqtt/data",target=/data \
+  --entrypoint /app/ring-mqtt/init-ring-mqtt.js \
+  tsightler/ring-mqtt:5.9.3
+```
+
+You (not an agent, not a script) enter your **Ring email/password** and the **2FA/OTP code**
+from your phone. The CLI writes `ring-mqtt/data/config.json` + `ring-state.json`. If it
+asks for a device name and MQTT URL, accept the defaults / skip the MQTT URL and set it
+manually:
+
+```json
+{ "mqtt_url": "mqtt://mosquitto:1883" }
+```
+
+(`mosquitto` resolves only on the compose network — this is why the init CLI's own URL
+prompt is skipped.) `enable_cameras` defaults to `true`, which is what we need.
+
+### 3. Discovering cameras
+
+```bash
+docker compose logs ring-mqtt | grep -E 'New (location|device)'
+```
+
+This prints every discovered location/device (friendly name + device ID). The camera ID in
+RTSP URLs is the **device ID**, never invented. If two devices have similar names, stop and
+report the candidates instead of guessing.
+
+### 4. Obtaining the local RTSP URL
+
+From the discovery output, the Front Door camera's ID gives (the real device ID stays
+local-only — substitute `<front-door-device-id>`):
+
+```
+Live:   rtsp://ring-mqtt:8554/<camera_id>_live     (from Frigate, compose network)
+        rtsp://127.0.0.1:18554/<camera_id>_live    (from this Mac host)
+Event:  rtsp://<host>:<port>/<camera_id>_event     (recorded playback; Ring Protect)
+```
+
+### 5. Probing the stream (read-only, independent of Frigate)
+
+```bash
+ffprobe -v error -rtsp_transport tcp \
+  -show_entries stream=codec_name,codec_type,width,height \
+  -of default=noprint_wrappers=1 \
+  rtsp://127.0.0.1:18554/<camera_id>_live
+```
+
+Expected: `h264` video (720×720 for the Doorbell Pro 4), AAC/Opus audio. The stream starts
+on demand and ring-mqtt auto-stops it ~5-10s after the last client disconnects (verify:
+`docker compose logs ring-mqtt | grep -i deactivat`).
+
+### 6. Connecting Frigate (bounded)
+
+Add a **temporary** go2rtc passthrough + camera to `frigate/config/config.yml` mirroring
+production's Ring-MQTT → go2rtc → Frigate path, restart Frigate, and confirm via
+`http://localhost:5001/api/stats` that the live camera shows `camera_fps > 0` with
+`detection_enabled: true`. Keep the existing `front_door` sample-media camera untouched.
+
+### 7. Running the bounded person-detection test
+
+With Frigate ingesting the live stream, a person walking toward the camera should produce a
+`person` event on `frigate/events` for the live camera. Watch it with:
+
+```bash
+mosquitto_sub -h 127.0.0.1 -p 1883 -t 'frigate/events'
+```
+
+Expect `sub_label: null` — identity recognition is Phase 3 (T031+).
+
+### 8. Stopping/disconnecting the Ring stream
+
+Remove the temporary live stream/camera block from `frigate/config/config.yml`, restart
+Frigate, and confirm ring-mqtt deactivates the stream:
+
+```bash
+docker compose logs ring-mqtt | grep -i deactivat   # → "Deactivating live stream..."
+```
+
+### 9. Restoring sample-media mode
+
+With the temporary block removed (step 8), `frigate/config/config.yml` points only at
+`known-person-walk.mp4` again. Confirm `front_door` ingests (`camera_fps > 0`) and the
+harness still passes: `tests/phase1/run_harness.sh all`.
+
+### 10. Troubleshooting common failures
+
+| Symptom | Cause / fix |
+|---|---|
+| `Unable to connect (Lookup error)` on `mosquitto` | You're using `MQTT_HOST=mosquitto` from `.env` on the Mac host — use `localhost`/`127.0.0.1`, or run inside compose (see §7/§9a) |
+| ring-mqtt hangs at discovery | A location hub is OFFLINE/CELL BACKUP — ring-mqtt waits. Use `location_ids` in `config.json` to restrict, or bring the hub online |
+| `ffprobe` RTSP fails | Confirm the camera ID is from discovery (step 3), port 18554 is bound (`docker compose ps`), and no other client holds the stream |
+| No person detected on live stream | Ring cameras suppress motion/ding while streaming — the test window must be short; a person must actually cross the camera view |
+| Stream never stops | A client (e.g. Frigate's go2rtc producer) is still connected — remove the temporary Frigate camera/stream and restart Frigate |
+| Low-power camera snapshot timeouts | Expected for battery cameras (`TimeoutError ... failed to retrieve updated interval snapshot`) — ring-mqtt wiki documents this limitation |
+
 ## 14. Restarting later
 
 ```bash
@@ -465,11 +592,14 @@ docker compose ps -a              # confirm stopped state
 **Destructive — clearly labeled, use only when you deliberately want a full reset:**
 ```bash
 docker compose down               # removes containers (not volumes) — config on disk under
-                                   # frigate/config/, home-assistant/throwaway-config/, and
-                                   # mosquitto/config/ survives; container state doesn't
+                                   # frigate/config/, home-assistant/throwaway-config/,
+                                   # mosquitto/config/, and ring-mqtt/data/ survives;
+                                   # container state doesn't
 docker compose down -v            # DESTRUCTIVE: also removes named volumes — full reset
 rm -rf home-assistant/throwaway-config/   # DESTRUCTIVE: wipes the throwaway HA's onboarding
 rm -rf frigate/config/*.db*                # DESTRUCTIVE: wipes Frigate's own database
+rm -rf ring-mqtt/data/                     # DESTRUCTIVE: wipes Ring refresh token + config
+                                           #   (you'd need to re-auth via §13a step 2)
 ```
 None of the destructive commands above touch `tests/phase1/test-media/` or any file tracked
 in git — they only affect generated runtime state.
@@ -572,5 +702,10 @@ not this checklist.
 - [x] T019 validation report updated
 - [x] T019 PASS (gate cleared)
 - [x] T020-T026 person-detection MVP harness PASS (`run_harness.sh all` → OVERALL PASS)
+- [x] T027 ring-mqtt bridge selected + authenticated (5.9.3, Docker, refresh-token auth)
+- [x] T028 live Front Door RTSP probed + Frigate ingests it (h264 720×720, camera_fps ≈ 5)
+- [x] T029 live person detected on the Ring stream (score ≈ 0.76, sub_label null)
+- [x] T030 Phase 2 documented (this guide §13a + validation-report.md)
+- [x] bounded test torn down; sample-media mode restored (see §13a steps 8–9)
 
-**DO NOT START T027 UNTIL the Phase 3 checkpoint is confirmed PASS.**
+**DO NOT START T031 UNTIL the Phase 4 checkpoint is confirmed PASS.**

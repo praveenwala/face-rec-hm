@@ -186,13 +186,28 @@ feature's Phase 1 MVP scope.
 credentials are available. No dedicated user story owns this phase — it is shared
 infrastructure enabling later stories.
 
-- [ ] T027 [P] Select and configure Ring-MQTT (or another proven Ring video bridge) per
-  constitution VI.2 (depends on: Phase 3 checkpoint)
-- [ ] T028 Replace the looped test video source with the live Front Door RTSP stream via
-  go2rtc; keep `scripts/loop-test-video.sh` for regression use (depends on: T027)
-- [ ] T029 Re-run the `tests/phase1/run_harness.sh` assertions against the live stream;
-  confirm person detection still functions on real footage (FR-023) (depends on: T028)
-- [ ] T030 Update `validation-report.md` with live-stream validation results
+- [x] T027 [P] Select and configure Ring-MQTT (or another proven Ring video bridge) per
+  constitution VI.2 (depends on: Phase 3 checkpoint) — **PASS**: `tsightler/ring-mqtt:5.9.3`
+  (Docker, officially supported); refresh-token auth via interactive init CLI (2FA); Front
+  Door discovered as `lpd_v4` (unambiguous; real device ID kept local/ignored, tracked docs
+  use `<front-door-device-id>`); RTSP endpoint created at
+  `rtsp://<host>/<front-door-device-id>_live` per ring-mqtt's documented pattern; secrets
+  in gitignored `ring-mqtt/data/`
+- [x] T028 Replace the looped test video source with the live Front Door RTSP stream via
+  go2rtc; keep `scripts/loop-test-video.sh` for regression use (depends on: T027) —
+  **PASS**: independent ffprobe probe OK (h264 720×720, AAC/Opus, ~3.4 s startup,
+  auto-stop on disconnect); temporary `front_door_live` camera ingested the live stream
+  (`camera_fps 5.1`, detection enabled, zero errors) while the sample-media `front_door`
+  camera stayed untouched
+- [x] T029 Re-run the `tests/phase1/run_harness.sh` assertions against the live stream;
+  confirm person detection still functions on real footage (FR-023) (depends on: T028) —
+  **PASS (bounded, real walk)**: homeowner walked toward the camera; 1 person event on
+  `front_door_live` (top_score 0.758, score 0.762, sub_label null), full MQTT lifecycle on
+  `frigate/events`, throwaway-HA sensor updated at live timestamps; stream auto-stopped
+  after Frigate disconnected; sample-media mode restored
+- [x] T030 Update `validation-report.md` with live-stream validation results — **DONE**: see
+  validation-report.md Phase 4 section; local testing docs updated (§13a in
+  `docs/testing/local-mac-testing.md`); production-deployment.md notes ring-mqtt choice
 
 **Checkpoint**: The live Ring Front Door stream reaches Frigate reliably; person detection
 functions on real footage.

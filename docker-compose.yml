@@ -49,3 +49,34 @@ services:
       - ./home-assistant/throwaway-config:/config
     environment:
       - TZ=${TZ:-UTC}
+
+  # Phase 2 (Constitution Phase 2): ring-mqtt bridge for the live Ring Front Door stream.
+  # BOUNDED-USE ONLY — Ring cameras are cloud/on-demand devices; continuous streaming is
+  # explicitly unsupported by ring-mqtt (loses motion/ding events, drains batteries,
+  # risks overheating). This service exists so T028-T029 can prove the live RTSP path in
+  # short, deliberate test windows; the Frigate source is switched back to the looped
+  # sample clip immediately after (docs/testing/local-mac-testing.md §12/§15).
+  #
+  # - config.json (mqtt_url etc.) and ring-state.json (Ring refresh token!) are created
+  #   by the bundled init-ring-mqtt.js CLI and live in ./ring-mqtt/data (gitignored,
+  #   never committed — constitution II.4). See ring-mqtt/README.md.
+  # - RTSP port 8554 inside the container; on the host it is bound to 127.0.0.1:18554
+  #   ONLY (Frigate's own go2rtc owns host 8554, and loopback-only keeps the unauthenticated
+  #   RTSP endpoint off the LAN). Frigate consumes the stream internally at
+  #   rtsp://ring-mqtt:8554/<camera_id>_live over the compose network.
+  # - livestream_user/livestream_pass RTSP auth is deliberately NOT enabled for this
+  #   Mac-local bounded test (loopback-only binding = no LAN exposure, and credentials in
+  #   the git-tracked frigate config would violate II.4). Production (Phase 5) MUST enable
+  #   it per the ring-mqtt wiki.
+  ring-mqtt:
+    image: tsightler/ring-mqtt:5.9.3
+    container_name: face-rec-phase1-ring-mqtt
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    ports:
+      - "127.0.0.1:18554:8554" # local RTSP gateway (loopback-only, bounded tests only)
+    volumes:
+      - ./ring-mqtt/data:/data
+    environment:
+      - TZ=${TZ:-UTC}

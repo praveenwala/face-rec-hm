@@ -5,16 +5,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Repository status
 
 Feature `001-front-door-person-identification` has a ratified spec, plan, and tasks.md, and has
-**completed its Foundational/pre-development validation gate (T019 = PASS)** — PD-01–PD-08 are
-green in `specs/001-front-door-person-identification/validation-report.md` (sample media now
-present under gitignored `tests/phase1/test-media/`; person detection and throwaway-HA event
-visibility proven on the local Phase 1 POC). The Phase 1 Mac POC environment
-(`docker-compose.yml`: Mosquitto + Frigate + a throwaway Home Assistant container) exists and
-runs locally — see `docs/testing/local-mac-testing.md` for how to start it and what to check.
-The hard gate (no T020+ until T019 passes) is now cleared; Constitution Phase 1 tasks (T020–
-T026) are actionable. Check
-`specs/001-front-door-person-identification/validation-report.md` for the current,
-authoritative pass/fail state.
+**completed its Foundational gate (T019 = PASS)** plus **Constitution Phase 1 (T020–T026 =
+PASS, person-detection MVP)** and **Constitution Phase 2 (T027–T030 = PASS, live Ring Front
+Door stream proven in bounded tests)** — see
+`specs/001-front-door-person-identification/validation-report.md` for the authoritative
+pass/fail state. The Mac POC stack (`docker-compose.yml`: Mosquitto + Frigate + throwaway HA
++ ring-mqtt bridge) runs locally — see `docs/testing/local-mac-testing.md` for how to start
+it and what to check.
+
+**Ring streaming is bounded-use only.** Ring cameras are cloud/on-demand devices;
+continuous streaming via ring-mqtt is unsupported (motion/ding loss, battery drain). The
+Phase 2 live tests used short deliberate windows and the Frigate config was restored to the
+looped sample-media source afterward (`docs/testing/local-mac-testing.md` §13a). Ring auth
+(2FA refresh token) lives in gitignored `ring-mqtt/data/`.
+
+Constitution Phase 3 tasks (T031+) are **NOT yet started** — they are blocked on the Phase 4
+checkpoint (this feature's Phase 2 ring streaming) having passed (it has) AND on PD-09
+(face-recognition hardware gate, T031).
 
 There is still no application source code — only configuration (Docker Compose, Frigate,
 Mosquitto), scripts (`scripts/loop-test-video.sh`), and documentation. Once T020+ begins, all

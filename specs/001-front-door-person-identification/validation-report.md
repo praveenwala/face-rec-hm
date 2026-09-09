@@ -203,11 +203,96 @@ unaffected, HA stayed up); production HA is untouched. **Lesson recorded**: pref
 API over direct DB reads for throwaway-HA verification; do not read the live DB with the
 host sqlite CLI.
 
+## Phase 4 (Constitution Phase 2) — Live Ring Front Door Stream evidence (T027–T030)
+
+**Status: PASS — 2026-09-09.** The live Ring Front Door RTSP path is proven end-to-end
+(live Ring stream → ring-mqtt → go2rtc → Frigate → person detection → MQTT → throwaway
+HA) in **bounded test windows only** — Ring cameras are on-demand devices; continuous
+streaming is explicitly unsupported by ring-mqtt (loss of motion/ding events while
+streaming, battery drain, overheating risk).
+
+### T027 — Bridge selection + validation
+
+- **ring-mqtt version**: `tsightler/ring-mqtt:5.9.3` (pinned, constitution VI.3; confirmed
+  via image label `org.opencontainers.image.version` and `package.json`). Docker is the
+  project's officially supported/preferred install method.
+- **Deployment**: Docker Compose service `ring-mqtt` in `docker-compose.yml`, RTSP bound to
+  `127.0.0.1:18554` (loopback-only; Frigate consumes internally at `ring-mqtt:8554`).
+  Persistent `/data` volume → `ring-mqtt/data/` (gitignored).
+- **Auth**: interactive `init-ring-mqtt.js` CLI (Ring email/password + 2FA/OTP) → refresh
+  token stored in `ring-mqtt/data/ring-state.json` (gitignored, never committed).
+  `config.json` has `mqtt_url: mqtt://mosquitto:1883` + `enable_cameras: true`.
+- **Front Door discovered**: `Front Door` (model `lpd_v4` / Ring Doorbell Pro 4),
+  location `Home`. Unambiguous — only one Front Door device, so no guessing was needed.
+  The real device ID is known locally (from discovery) but is **not** committed; tracked
+  docs use the placeholder `<front-door-device-id>`.
+- **RTSP endpoint created**: `rtsp://ring-mqtt:8554/<front-door-device-id>_live`
+  (internal) / `rtsp://127.0.0.1:18554/<front-door-device-id>_live` (Mac host), per
+  ring-mqtt's documented `<camera_id>_live` pattern. **Result: PASS**.
+- Security decision recorded: `livestream_user`/`livestream_pass` RTSP auth deliberately
+  NOT enabled for this Mac-local bounded test (loopback-only binding = no LAN exposure;
+  credentials in the git-tracked Frigate config would violate constitution II.4).
+  Production (Phase 5) MUST enable it per the ring-mqtt wiki.
+
+### T028 — Live RTSP → Frigate (bounded)
+
+- **Independent RTSP probe** (before any Frigate change): `ffprobe` on
+  `rtsp://127.0.0.1:18554/<front-door-device-id>_live` → **h264 video 720×720**, AAC + Opus audio,
+  ~3.4 s startup. Stream auto-stopped after probe disconnect (ring-mqtt log:
+  `Deactivating live stream...`, `stream/state OFF`, `"status":"inactive"`).
+- **Frigate connection** (temporary `front_door_live` camera + go2rtc passthrough
+  `ring_front_door_live`, mirroring production's Ring-MQTT → go2rtc → Frigate path):
+  `camera_fps 5.1`, `process_fps 5.1`, `detection_enabled True`, zero errors; person
+  detector active; no face recognition configured (T023 holds). Existing `front_door`
+  sample-media camera untouched and still ingesting (`camera_fps 5.0`). **Result: PASS**.
+
+### T029 — Live person detection (bounded, real walk)
+
+- Human action: homeowner physically walked toward the Front Door camera (2026-09-09
+  ~12:46 local).
+- **Ring stream**: started on demand via Frigate's RTSP client; WebRTC session connected.
+- **Frigate detection**: `label=person`, `top_score 0.758`, `score 0.762` (event
+  start 1788983198.27 / 12:46:38 local).
+- **Event count**: 1 completed person event on `front_door_live` (full
+  new→update→end lifecycle on `frigate/events`).
+- **Confidence range**: 0.63–0.76 across the event.
+- **MQTT**: `update` + `end` messages received on `frigate/events` (camera
+  `front_door_live`), `sub_label: null` — correct at this phase (no identity
+  recognition yet).
+- **Throwaway HA**: `sensor.frigate_events_test` updated to `person` at live timestamps
+  (12:46:59–12:47:18 local) matching the event window. **Result: PASS**.
+
+### Stream shutdown & Ring behavior after test
+
+- Frigate disconnected (temporary live camera/stream removed from config, Frigate
+  restarted). ring-mqtt log confirms: `Deactivating live stream due to signal from RTSP
+  server (no more active clients or publisher ended stream)`, `Live stream WebRTC session
+  has disconnected`, `stream/state OFF`, `"status":"inactive"`. **Ring live stream
+  stopped** — no lingering stream.
+- ring-mqtt continued normal operation (device discovery intact, interval snapshots
+  retrieving, MQTT publishing) — ordinary Ring device behavior was not disrupted by the
+  bounded test. Low-power cameras (Garden/Side) showed expected interval-snapshot timeouts
+  (ring-mqtt wiki-documented limitation).
+- **Ding/motion behavior**: ring-mqtt-side availability is intact (device online,
+  snapshot/state topics publishing). Full verification against the *production* HA
+  automations (`event.front_door_ding`/`event.front_door_motion`) is **deferred to T053**
+  — production HA TCP (8123/1883) is unreachable from this Mac (PD-01 note) and production
+  HA was intentionally not modified. **Result: PASS (bounded scope; production-isolation
+  criterion deferred by design per research.md #11).**
+
+### Fallback/restoration
+
+Temporary live config fully removed from `frigate/config/config.yml`; `front_door`
+sample-media camera restored (`camera_fps 5.0`, detection enabled); harness remains green.
+See `docs/testing/local-mac-testing.md` §13a for the exact bounded-test procedure and
+restoration steps.
+
 ## Blocking issues
 
 1. ~~Sample media required (T008 / PD-06 / PD-07)~~ — **RESOLVED 2026-09-09**: approved sample media placed under `tests/phase1/test-media/`; PD-06/PD-07 now PASS. Photos: 4 JPGs (under the 5-10 requested — non-blocking, only needed at T034/Phase 3 enrollment). Videos: known-person clip (as `known-person-walk.mp4` + original `RingVideo_20260909_132147.MP4`), `RingVideo_20260909_132235.MP4` (person clip), and 2 derived no-person segments. No low-light or two-person clip supplied — not required for the PD-07 pass criteria and not blocking the gate; useful later for Phase 3/4 acceptance tests (T036, T050).
-2. Production HA (192.168.68.103) was not TCP-reachable from this Mac at inventory time on ports 8123/1883 — not a Phase 1 blocker, but worth checking before Phase 4 (T052).
+2. Production HA (192.168.68.103) was not TCP-reachable from this Mac at inventory time on ports 8123/1883 — not a Phase 1 blocker, but worth checking before Phase 4 (T052). **Still true as of the Phase 2 run (T027–T030)** — full ding/motion behavior verification against production HA therefore remains deferred to T053; production HA was intentionally not modified.
 3. Free disk is at 16 GB free — not currently blocking, but worth monitoring once Frigate's clip/recording storage and larger sample media are in use.
+4. **Ring streaming is bounded-only** (T027–T030 constraint): Ring cameras are on-demand devices; continuous streaming is unsupported (motion/ding loss, battery drain). The Frigate config is restored to the sample-media source after every live test — see `docs/testing/local-mac-testing.md` §13a.
 
 ## Media request (per pre-development-validation.md §5)
 
