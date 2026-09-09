@@ -269,6 +269,17 @@ recognition requirement specifically) produce real numbers.
   - Unknown-person recognition must not automatically create a persistent biometric
     identity/profile — an `Unknown` result stays an event outcome, never a stored identity
     (constitution II.1, II.2).
+  - **Frigate automatically saves face-attempt crops (T033 finding).** Once identities
+    exist, Frigate's `write_face_attempt()` stores every classified face attempt —
+    **including unknown faces** — as `.webp` under the Frigate data dir
+    (`/media/frigate/clips/faces/train/` in the POC container; production equivalent under
+    the Frigate storage volume), capped at `save_attempts` (default 200, oldest deleted).
+    These are runtime biometric artifacts, never in Git (Frigate's data volume is outside
+    the repo by design). **Production must plan explicit retention/cleanup for these
+    auto-saved unknown-face crops** and decide a deployment-time `save_attempts` value
+    consistent with the retention policy above (constitution II.5). Pre-enrollment
+    (Phase 5, T033) this path is unreachable — Frigate short-circuits with an empty
+    library and writes nothing.
 - **Face recognition never directly grants physical access.** NON-NEGOTIABLE (constitution
   II.3, FR-025) — no door lock, garage door, or alarm-disarm automation may ever depend on a
   face-recognition result, in this phase or any future one without a formal constitution

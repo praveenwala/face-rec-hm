@@ -650,6 +650,48 @@ flow at scores 0.65–0.84 with `sub_label: null`; harness OVERALL PASS; contain
 RestartCount 0. **Do not enroll faces or create identities here** — that is T034+, and the
 enrollment-quality photo gate applies before it.
 
+## 13d. Pre-enrollment face-processing verification (T033)
+
+Executed 2026-09-09. With **zero enrolled identities**, T033 verified what face
+processing actually does (and does not do) before enrollment, and deferred threshold
+tuning: `THRESHOLD_TUNING_STATUS = DEFERRED_UNTIL_ENROLLMENT` (T034+). The baseline
+thresholds from T032 (`detection_threshold 0.7`, `unknown_score 0.8`,
+`recognition_threshold 0.9` — Frigate 0.17.2 defaults) are **unchanged and NOT claimed as
+tuned**; they are Unknown-safe by construction while the library is empty.
+
+To re-verify the pre-enrollment face state:
+
+```bash
+# 1. Face subsystem active but zero classifications (fps 0.0 = empty-library short-circuit)
+curl -s http://localhost:5001/api/stats | python3 -m json.tool   # look at "embeddings"
+
+# 2. Empty library, no artifacts
+curl -s http://localhost:5001/api/faces                          # → {}
+docker exec face-rec-phase1-frigate sh -c 'find /media/frigate/clips/faces -type f | wc -l'   # → 0
+
+# 3. Event semantics: label=person, sub_label=null, no face fields, no face MQTT topic
+mosquitto_sub -h 127.0.0.1 -p 1883 -t 'frigate/events' -C 5 -W 40
+
+# 4. Person-detection regression unaffected
+ tests/phase1/run_harness.sh all   # → OVERALL: PASS
+```
+
+**Distinct states — never collapse them (constitution IV.3):**
+
+| State | Meaning | Reachable pre-enrollment? |
+|---|---|---|
+| `FACE_DETECTED` | a face box was found in a person crop | not observable at INFO log level (debug only) |
+| `FACE_UNMATCHED` | face classified but below thresholds → "unknown" | **NO** — classify() short-circuits with an empty library |
+| `IDENTITY_NOT_ENROLLED` | no identities in the library → no classification attempted | ✅ the actual pre-enrollment state |
+| `PERSON_NOT_DETECTED` | no person event | unchanged |
+
+**Privacy/retention note (affects production)**: once identities are enrolled (T034+),
+Frigate auto-saves every classified face attempt — **including unknown faces** — as `.webp`
+in `/media/frigate/clips/faces/train/`, capped at `save_attempts` (default 200, oldest
+deleted). Pre-enrollment this path is unreachable. The path is inside the container (not
+bind-mounted into the repo — see §4/T013), so it can never be committed; plan retention/
+cleanup for unknown-face crops in production (constitution II.5).
+
 ## 14. Restarting later
 
 ```bash

@@ -434,6 +434,81 @@ library tracked (face dir empty, inside the container's own storage); no config 
 sample media remains gitignored (verified `git check-ignore`). Only
 `frigate/config/config.yml` changed (the `face_recognition:` block + comment updates).
 
+## Phase 5 (Constitution Phase 3) — Pre-enrollment face-processing evidence (T033)
+
+**Status: PASS (pre-enrollment scope) — 2026-09-09.** T033 validated what is honestly
+provable with **zero enrolled identities** and explicitly deferred recognition-quality
+threshold tuning to after enrollment. It did NOT claim known-person accuracy, FAR/FRR, or
+threshold tuning quality — those require T034+.
+
+`THRESHOLD_TUNING_STATUS = DEFERRED_UNTIL_ENROLLMENT` (T034+)
+
+### Face-processing behavior (person-positive sample, standard pipeline)
+
+| Question | Result | Evidence |
+|---|---|---|
+| Face-recognition subsystem active? | ✅ | `embeddings` stats: `face_recognition_speed ~11.5 ms` (inference measured); `frigate.embeddings_manager` process running; small-model files present in gitignored `/config/model_cache/facedet/` |
+| Face classifications completed? | ❌ zero | `embeddings.face_recognition` fps = **0.0** over a 60 s window with 10 person events flowing; no `Detected best face` path reached |
+| Why? (code-verified) | empty-library short-circuit | `FaceNetRecognizer.classify()`: if `mean_embs` is empty → `build()` → still empty → **return None** (verified in `/opt/frigate/frigate/data_processing/common/face/model.py`); `process_frame` then logs "Face recognizer returned no result" and returns without `write_face_attempt` |
+| Face detected (box found in person crop)? | ⚠ not observable at INFO log level | Face detector (`facedet.onnx`, cv2 FaceDetectorYN) runs only on person objects; its debug logs are DEBUG-level. What is provable: no classification/artifact path executed. Detail becomes observable/testable at T035 (recognition on the enrolled clip) |
+| Named identity produced? | ❌ none | `sub_label` null on every event; `/api/faces` → `{}`; no face tables in `frigate.db` |
+| Unknown-face state reachable? | ❌ not yet | The `score ≤ unknown_score → sub_label "unknown"` branch is **unreachable with an empty library** because classify() returns None before scoring. It becomes reachable only after ≥1 identity is enrolled (T034+) |
+| Base person event intact? | ✅ | 10 person events in 60 s (`label=person`, scores 0.52–0.82), full lifecycle |
+
+### Event / MQTT / API semantics
+
+- **MQTT `frigate/events` payloads**: exactly `label=person`, `sub_label=null`, `type`
+  new/update/end — **no face-specific fields**, no identity field, no face score field.
+- **Separate face MQTT topic**: none observed in `frigate/#` during the window.
+- **Frigate `/api/events`**: no face-related keys in the event schema; `data.attributes`
+  empty (manual face-detection path, since `objects.track: [person]` only).
+- **`/api/faces`**: `{}` (empty library).
+- **Distinct states documented (never collapsed, constitution IV.3):**
+  `FACE_DETECTED` (face box found in person crop — not observable at INFO level
+  pre-enrollment), `FACE_UNMATCHED` (classified but below `recognition_threshold` /
+  `unknown_score` — NOT reachable pre-enrollment), `IDENTITY_NOT_ENROLLED` (empty
+  library → classify short-circuits → no classification attempted — the actual
+  pre-enrollment state), `PERSON_NOT_DETECTED` (no person event — unaffected).
+
+### Baseline threshold confirmation
+
+- Values unchanged from T032 (Frigate 0.17.2 defaults): `detection_threshold 0.7`,
+  `unknown_score 0.8`, `recognition_threshold 0.9`.
+- Frigate accepts them (config validated, no migration, container healthy, RestartCount 0);
+  face subsystem healthy; **no false named identity possible** with an empty library;
+  unmatched/no-identity behavior is safe (person event preserved).
+- **Not claimed as tuned** — no enrolled identities exist to evaluate them against.
+  Threshold tuning quality (FAR/FRR, `unknown_score`/`recognition_threshold` fit) is
+  deferred to T035–T037 after enrollment (T034).
+
+### Person-detection regression (face processing ON)
+
+`tests/phase1/run_harness.sh all` → **OVERALL PASS** (harness unchanged):
+
+- **PERSON_PRESENT**: 25 person events; first `update|person|0.8046875` within 30 s.
+- **PERSON_NOT_DETECTED**: 0 person events in 45 s on the no-person clip.
+- **MEDIA_DECODE_FAILURE / STREAM_FAILURE / EVENT_DELIVERY_FAILURE**: distinct.
+- **Identity-unavailable recovery**: 21+ person events after Frigate restart.
+- Base person events do **not** depend on successful face processing (FR-002/FR-017,
+  constitution III.3): with face recognition on and zero classifications completing, the
+  person event stream is unchanged.
+
+### Privacy observation (biometric artifact behavior — affects production design)
+
+- **Automatic face artifacts with empty library**: **NONE** — 0 files under
+  `/media/frigate/clips/faces/` across all observation windows; no face DB tables.
+- **What happens AFTER enrollment** (code-verified, not yet triggered): Frigate's
+  `write_face_attempt()` saves **every classified face attempt — including unknown
+  faces** — as `.webp` (`{event_id}-{timestamp}-{sub_label}-{score}.webp`) to
+  `/media/frigate/clips/faces/train/`, capped at `save_attempts: 200` (default; oldest
+  deleted). **Retention implication**: production must plan retention/cleanup for
+  automatically-stored unknown-face crops (constitution II.5 — minimize retention).
+- **Storage path**: `/media/frigate/clips/faces/` is **inside the container** (Frigate's
+  own storage, NOT bind-mounted into the repo per T013 design) — it survives `docker
+  compose restart` (same container) but is lost on container recreation; it is outside
+  the git working tree entirely, so it can never be committed.
+- No actual face images were printed or exposed in this documentation.
+
 ## Blocking issues
 
 1. ~~Sample media required (T008 / PD-06 / PD-07)~~ — **RESOLVED 2026-09-09**: approved sample media placed under `tests/phase1/test-media/`; PD-06/PD-07 now PASS. Photos: 4 JPGs (under the 5-10 requested — non-blocking, only needed at T034/Phase 3 enrollment). Videos: known-person clip (as `known-person-walk.mp4` + original `RingVideo_20260909_132147.MP4`), `RingVideo_20260909_132235.MP4` (person clip), and 2 derived no-person segments. No low-light or two-person clip supplied — not required for the PD-07 pass criteria and not blocking the gate; useful later for Phase 3/4 acceptance tests (T036, T050).

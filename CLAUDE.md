@@ -36,13 +36,27 @@ accepted (FEATURE_PRESENT = YES). One 0.17 breaking change is handled locally: g
 (`enabled: true, model_size: small` — FaceNet, CPU-only; large/ArcFace stays
 production-only), with the Frigate 0.17.2 conservative defaults written explicitly
 (detection 0.7 / unknown 0.8 / recognition 0.9 — favor `Unknown`, constitution II.2; NOT
-tuned — T033 is the tuning task). The subsystem initializes cleanly (embedding process,
-small-model files downloaded, `/media/frigate/clips/faces/` created), the full
-`run_harness.sh all` regression remains OVERALL PASS with face recognition on, MQTT
-payloads keep `sub_label: null`, and the throwaway HA still receives events. **No
-identities are enrolled** — the face library is empty and the expected result is
-`Unknown` / no named match (FR-002/FR-005). T033 (conservative threshold tuning for
-enrolled identities) is next, pending explicit approval.
+tuned). The subsystem initializes cleanly (embedding process, small-model files
+downloaded), the full `run_harness.sh all` regression remains OVERALL PASS with face
+recognition on, MQTT payloads keep `sub_label: null`, and the throwaway HA still receives
+events. **No identities are enrolled** — the face library is empty.
+
+**T033 (pre-enrollment face-processing validation) has been executed and passed (2026-09-09).**
+With zero enrolled identities, T033 honestly validated the pre-enrollment surface and
+deferred threshold tuning: `THRESHOLD_TUNING_STATUS = DEFERRED_UNTIL_ENROLLMENT` (T034+).
+Verified: face subsystem active (`face_recognition_speed ~11.5ms` measured) but **zero
+face classifications complete** (fps 0.0) and **zero biometric artifacts** (0 files in
+`/media/frigate/clips/faces/`, no face DB tables) — code-verified that
+`FaceNetRecognizer.classify` returns None with an empty embeddings map, so `write_face_attempt`
+never runs pre-enrollment. Event semantics unchanged (`label=person`, `sub_label=null`, no
+face MQTT topic, `/api/faces` → `{}`). Full regression OVERALL PASS — person detection is
+independent of face processing (FR-002/FR-017). Baseline thresholds unchanged and NOT
+claimed as tuned. **Privacy/retention finding for production**: once identities exist,
+Frigate auto-saves every classified face attempt (incl. unknown faces) as `.webp` under
+`/media/frigate/clips/faces/train/` up to `save_attempts` (default 200) — production must
+plan retention/cleanup for unknown-face crops (constitution II.5; recorded in
+validation-report.md and production-deployment.md). Next: T034 (enroll first Known
+Identity), pending explicit approval.
 
 This repo has no application source code yet — only configuration (Docker Compose,
 Frigate, Mosquitto), scripts (`scripts/loop-test-video.sh`), and documentation. Identity/

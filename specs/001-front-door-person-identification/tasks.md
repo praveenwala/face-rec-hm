@@ -255,8 +255,37 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
   (`/media/frigate/clips/faces/`) empty, no named identity produced, no false identity
   fabricated — expected Unknown/no-match semantics with an empty library (FR-002,
   FR-005). T033 (threshold tuning) remains pending
-- [ ] T033 [P] [US2] Set the starting confidence threshold conservatively, favoring `Unknown`
-  (research.md #9; FR-005, FR-006) (depends on: T032)
+- [x] T033 [P] [US2] Set the starting confidence threshold conservatively, favoring `Unknown`
+  (research.md #9; FR-005, FR-006) (depends on: T032) — **PASS 2026-09-09 (pre-enrollment
+  scope)**: with **zero enrolled identities**, meaningful known-vs-unknown threshold
+  tuning is impossible, so T033 validated the honestly provable pre-enrollment surface
+  and explicitly deferred tuning:
+  `THRESHOLD_TUNING_STATUS = DEFERRED_UNTIL_ENROLLMENT` (T034+).
+  - **Baseline thresholds unchanged** (Frigate 0.17.2 defaults from T032):
+    `detection_threshold 0.7`, `unknown_score 0.8`, `recognition_threshold 0.9` —
+    accepted by the runtime, face subsystem healthy, and they preserve Unknown-safe
+    behavior with an empty library (no false identity possible: classify() has no
+    registered embeddings to match). Not claimed as tuned (no enrolled identities).
+  - **Face-processing semantics observed** (person-positive sample via the standard
+    pipeline): face-recognition subsystem active (`embeddings` stats:
+    `face_recognition_speed ~11.5ms` inference measured, embedding process running),
+    but **zero face classifications complete** (`face_recognition` fps 0.0) and **zero
+    biometric artifacts** (0 files under `/media/frigate/clips/faces/`, no face tables
+    in `frigate.db`) — code-verified: `FaceNetRecognizer.classify` returns `None` when
+    the embeddings map is empty, so `write_face_attempt` never runs pre-enrollment.
+  - **Event semantics**: MQTT/API payloads remain exactly `label=person`,
+    `sub_label=null`, no face-specific fields, no separate face MQTT topic;
+    `/api/faces` → `{}`; base person event fully intact and independent of face
+    processing (FR-002/FR-017, constitution III.3).
+  - **Full regression**: `run_harness.sh all` OVERALL PASS (PERSON_PRESENT 25 events,
+    PERSON_NOT_DETECTED 0 in 45s, failure classes distinct) — face processing does not
+    disturb person detection.
+  - **Privacy/retention finding (affects production design)**: once identities exist,
+    Frigate auto-saves every classified face attempt (incl. unknown faces) as `.webp`
+    under `/media/frigate/clips/faces/train/` up to `save_attempts: 200` (default) —
+    documented in validation-report.md T033 section; production must plan retention/
+    cleanup for unknown-face crops (constitution II.5). Pre-enrollment this path is
+    unreachable (empty library short-circuit).
 - [ ] T034 [US6] Enroll the first Known Identity from the approved reference photos (stored
   outside the repo per research.md #6) (FR-003)
 - [ ] T035 [US2] Test: the enrolled person's clip produces `frigate/events` with `sub_label`
