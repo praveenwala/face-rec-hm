@@ -226,8 +226,11 @@ This is enforced by `.gitignore` (the `tests/phase1/test-media/` rule, plus broa
 
 ## 9. Testing a sample video manually
 
-There is currently **one** script in this repo for this workflow:
-`scripts/loop-test-video.sh`. It does **not** itself start a stream — it's a pre-flight
+There are **two** scripts for this workflow: `scripts/loop-test-video.sh` (pre-flight probe /
+decode validator, below) and `tests/phase1/run_harness.sh` (the automated MVP assertion
+harness — see §9a).
+
+`scripts/loop-test-video.sh`: It does **not** itself start a stream — it's a pre-flight
 validator: it probes a candidate clip with `ffprobe`, does a real decode test with `ffmpeg`,
 and tells you what to do next. The actual looping/streaming happens inside Frigate's own
 bundled go2rtc, configured in `frigate/config/config.yml`.
@@ -277,6 +280,43 @@ bundled go2rtc, configured in `frigate/config/config.yml`.
    curl -s http://localhost:5001/api/stats | python3 -m json.tool
    ```
    Look for `camera_fps` > 0 under `cameras.front_door`.
+
+## 9a. Running the automated MVP harness
+
+`tests/phase1/run_harness.sh` drives the looped go2rtc source and asserts on Frigate's MQTT
+output — it is the automated form of the person-detection MVP checks (spec US1 SC-001 +
+Acceptance Scenarios 3/4; tasks T020-T022/T025). It swaps the clip filename in
+`frigate/config/config.yml`, restarts Frigate, observes `frigate/events`, and restores the
+original clip on exit.
+
+```bash
+tests/phase1/run_harness.sh all        # run every assertion (positive + negative + identity-unavailable + failure-classes)
+tests/phase1/run_harness.sh positive   # just the person-positive assertion
+tests/phase1/run_harness.sh negative   # just the no-person assertion
+tests/phase1/run_harness.sh identity-unavailable   # stop-Frigate classification + recovery
+tests/phase1/run_harness.sh failure-classes        # MEDIA_DECODE/STREAM/EVENT_DELIVERY classifications
+```
+
+Every outcome is classified explicitly — never collapsed (constitution IV.3):
+
+| Outcome | Meaning |
+|---|---|
+| `PERSON_PRESENT` | person-labeled event observed on `frigate/events` |
+| `PERSON_NOT_DETECTED` | Frigate healthy + ingesting, but no person event in the window |
+| `MEDIA_DECODE_FAILURE` | the clip itself couldn't be probed/decoded |
+| `STREAM_FAILURE` | Frigate down or not ingesting (subsystem unavailable) |
+| `EVENT_DELIVERY_FAILURE` | broker unreachable or subscription failed |
+
+Expected (as of the T019-passing baseline): `all` prints OVERALL PASS. Default clips are
+`known-person-walk.mp4` (positive) and `videos/derived-no-person-segment-1.mp4` (negative),
+overridable via `POSITIVE_CLIP`/`NEGATIVE_CLIP` env vars. Observation windows default to
+30 s (positive) and 45 s (negative) — do not shrink these just to make a flaky pass.
+
+**Host-side broker endpoint**: the harness connects to `127.0.0.1:1883` (the Phase 1
+broker's host-published port). It deliberately does **not** inherit `MQTT_HOST` from `.env`
+— that value (`mosquitto`) is the in-container service name, unresolvable from the Mac
+host. If you override the published port in `.env` (`MQTT_PORT`), pass
+`HARNESS_MQTT_PORT=<port>` to the harness.
 
 ## 10. Supported media behavior
 
@@ -370,19 +410,26 @@ success criterion SC-002/SC-004.
 ## 13. Home Assistant test
 
 The throwaway Home Assistant instance (<http://localhost:8124>) and Frigate share the same
-isolated MQTT broker, but the throwaway instance's own Frigate/MQTT integration has **not yet
-been configured** inside its UI as of this writing — that setup, plus confirming a
-Frigate-generated event/entity is visible there, is exactly what task T018 covers, and it's
-currently blocked on real sample media (T008) producing a real detection event to see.
+isolated MQTT broker. As of T018/T026 the throwaway instance has an MQTT config entry pointed
+at `mosquitto:1883` and a declared MQTT sensor (`sensor.frigate_events_test`, state topic
+`frigate/events`), and it demonstrably updates to `person` when Frigate events fire.
 
-Once media is available and T016 (person detection) passes, verify here:
+To verify HA visibility yourself:
 1. Log into <http://localhost:8124> (first run prompts you to create a local-only admin
    account — this account is disposable, matches nothing production).
 2. Settings → Devices & Services → confirm an MQTT integration exists (add one pointed at
    `mosquitto:1883` if not already present, using the throwaway instance's own settings —
-   never reuse production credentials here).
+   never reuse production credentials here). Note: in HA 2024.x the broker host/port must be
+   set via this config entry; top-level `mqtt: broker:`/`port:` YAML keys raise "Invalid
+   config for 'mqtt'" (found during T018).
 3. Developer Tools → States → filter for `frigate` or the configured camera name, and confirm
    an entity updates when a person event fires (§11).
+
+> **Do not read the throwaway HA's SQLite database (`home-assistant_v2.db`) with the host
+> `sqlite3` CLI while HA is running** — the macOS CLI (sqlite 3.43) reading HA's newer-format
+> WAL can trigger HA's own corruption detector (observed during T026; HA auto-recovers by
+> renaming the DB, but it's needless churn on a container you'd rather leave alone). Prefer
+> the HA REST/WebSocket API for state checks.
 
 **Do not modify your production Home Assistant to perform this test.** This section is about
 the throwaway instance only.
@@ -473,11 +520,14 @@ in git — they only affect generated runtime state.
   daemon running?`
 - *Solution*: `open -a Docker`, wait ~10-20s, retry. Confirm with `docker info`.
 
-**MQTT connection refused**
-- *Symptom*: `mosquitto_sub`/`mosquitto_pub` hang or immediately error with "Connection
-  refused."
+**MQTT connection refused / "Lookup error"**
+- *Symptom*: `mosquitto_sub`/`mosquitto_pub` hang or error with "Connection refused" or
+  "Unable to connect (Lookup error)".
 - *Solution*: confirm the `mosquitto` container is running (`docker compose ps`) and that
-  you're using port 1883 (or your `.env`'s `MQTT_PORT` override).
+  you're using port 1883 (or your `.env`'s `MQTT_PORT` override). If you see "Lookup error",
+  you're probably using `MQTT_HOST=mosquitto` from `.env` — that hostname only resolves
+  inside the compose network. From the Mac host, use `-h localhost`/`127.0.0.1` (the
+  harness does this automatically; see §9a).
 
 **Frigate restart loop**
 - *Symptom*: `docker compose ps` shows `Restarting` repeatedly, or `RestartCount` climbing in
@@ -510,15 +560,17 @@ authoritative, currently-recorded status is always
 [validation-report.md](../../specs/001-front-door-person-identification/validation-report.md),
 not this checklist.
 
-- [ ] containers running
-- [ ] Frigate UI reachable
-- [ ] throwaway HA reachable
-- [ ] MQTT round trip
-- [ ] sample media probes
-- [ ] person-positive sample passes
-- [ ] person-negative sample passes
-- [ ] Home Assistant event path passes
-- [ ] T019 validation report updated
-- [ ] T019 PASS
+- [x] containers running
+- [x] Frigate UI reachable
+- [x] throwaway HA reachable
+- [x] MQTT round trip
+- [x] sample media probes
+- [x] person-positive sample passes (harness T020)
+- [x] person-negative sample passes (harness T021)
+- [x] identity-unavailable classification + recovery passes (harness T022)
+- [x] Home Assistant event path passes
+- [x] T019 validation report updated
+- [x] T019 PASS (gate cleared)
+- [x] T020-T026 person-detection MVP harness PASS (`run_harness.sh all` → OVERALL PASS)
 
-**DO NOT START T020 UNTIL T019 = PASS.**
+**DO NOT START T027 UNTIL the Phase 3 checkpoint is confirmed PASS.**

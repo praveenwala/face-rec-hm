@@ -41,13 +41,13 @@ import json, sys
 data = json.load(sys.stdin)
 fmt = data.get("format", {})
 video_streams = [s for s in data.get("streams", []) if s.get("codec_type") == "video"]
-print(f"  container: {fmt.get(\"format_name\")}")
-print(f"  duration:  {fmt.get(\"duration\", \"unknown\")}s")
+print("  container:", fmt.get("format_name"))
+print("  duration: ", fmt.get("duration", "unknown"), "s")
 if video_streams:
     v = video_streams[0]
-    print(f"  codec:     {v.get(\"codec_name\")}")
-    print(f"  size:      {v.get(\"width\")}x{v.get(\"height\")}")
-    print(f"  fps:       {v.get(\"r_frame_rate\")}")
+    print("  codec:    ", v.get("codec_name"))
+    print("  size:     ", v.get("width"), "x", v.get("height"))
+    print("  fps:      ", v.get("r_frame_rate"))
 else:
     print("  WARNING: no video stream detected")
 '

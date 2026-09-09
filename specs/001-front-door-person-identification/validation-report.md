@@ -151,6 +151,58 @@ Detection engine: Frigate's CPU detector (`frigate.detectors WARNING: CPU detect
 
 **T019 gate result: PASS.** PD-01 through PD-08 now pass in full (see each section above for evidence); PD-09 remains explicitly **deferred** to Phase 3 (T031), which is the sanctioned disposition per PD-10 ("PD-09 has either passed or has been explicitly deferred to supported hardware"). Per the constitution and your explicit instructions, implementation tasks (T020+) may now begin.
 
+## Phase 3 (Constitution Phase 1) — Person Detection MVP evidence (T020–T026)
+
+**Status: PASS — 2026-09-09.** The local Person Detection MVP is proven end-to-end:
+sample video → Frigate → person detection → MQTT event → throwaway Home Assistant.
+
+### T020/T021/T022/T025 — Automated harness (`tests/phase1/run_harness.sh`)
+
+`tests/phase1/run_harness.sh all` (drives the go2rtc-looped source, asserts on
+`frigate/events`; see `docs/testing/local-mac-testing.md` §9a for usage):
+
+| Assertion | Outcome | Evidence |
+|---|---|---|
+| T020 positive (US1 SC-001) | **PASS** | `known-person-walk.mp4`: probed+decoded OK; Frigate ingesting (`camera_fps ≈ 5`); 6 `person`-labeled events in 30 s (first `update\|person\|0.84375`), full new/update/end lifecycle |
+| T021 negative (US1 Scenario 3) | **PASS** | `videos/derived-no-person-segment-1.mp4`: decoded OK; Frigate healthy/ingesting throughout; **0** person events in 45 s |
+| T022 identity-unavailable (US1 Scenario 4) | **PASS** | Frigate stopped → classified **STREAM_FAILURE** (not `PERSON_NOT_DETECTED`, not `MEDIA_DECODE_FAILURE`); broker/transport survived; after restart **PERSON_PRESENT** (7 events in 30 s) — recovery without rebuilding anything |
+| failure-classes (extra, harness observability) | **PASS** | `MEDIA_DECODE_FAILURE` (undecodable clip rejected as media problem), `STREAM_FAILURE` (subsystem down), `EVENT_DELIVERY_FAILURE` (unreachable broker) all classified distinctly — never collapsed (constitution IV.3, FR-019) |
+
+### T023 — Person-detection-only config
+
+`frigate/config/config.yml` tracks `person` only (`objects.track: [person]`), with **no
+`face_recognition:` block** — identity recognition deliberately off for this phase
+(FR-001/FR-002; Phase 3 scope T031-T033). **PASS.**
+
+### T024 — MQTT event contract
+
+Live `frigate/events` payload carries the exact `contracts/mqtt-events.md` semantic shape:
+`type` (`new`/`update`/`end`) + `after.id`, `after.camera` (`front_door`), `after.label`
+(`person`), `after.sub_label` (`null` — expected with recognition disabled), `after.start_time`,
+`after.end_time` (`null` while ongoing), `after.false_positive`. `frigate/available` publishes
+`online`. **PASS.**
+
+### T026 — Throwaway-HA failure isolation (mechanics-only slice of US5)
+
+With the Frigate container stopped: throwaway HA stayed reachable (`http://localhost:8124/`
+→ HTTP 302); HA's MQTT client logged **0 disconnects** on the shared broker; a
+`mosquitto_pub`/`mosquitto_sub` round-trip succeeded (broker independent of the AI
+subsystem). Frigate restarted healthy and person events resumed immediately. **PASS** — the
+full FR-018/SC-008 acceptance (existing *production* Ring automations unaffected) remains
+deferred to T053 by design (research.md #11).
+
+### Note: throwaway HA recorder DB auto-recovery (not a failure of the MVP)
+
+During T026, the throwaway HA's `home-assistant_v2.db` was detected corrupt by HA's own
+recorder (2026-09-09 19:10:15Z) and automatically renamed to
+`home-assistant_v2.db.corrupt.2026-09-09T19:10:15.355273+00:00` with a fresh DB started —
+HA's documented recovery path. Likely trigger: raw `sqlite3` CLI reads of the live WAL-mode
+DB from the Mac host during this session (macOS's sqlite 3.43 CLI vs. HA's newer WAL
+format). Impact: none on the MVP (sensor entity registry intact, MQTT integration
+unaffected, HA stayed up); production HA is untouched. **Lesson recorded**: prefer HA's REST
+API over direct DB reads for throwaway-HA verification; do not read the live DB with the
+host sqlite CLI.
+
 ## Blocking issues
 
 1. ~~Sample media required (T008 / PD-06 / PD-07)~~ — **RESOLVED 2026-09-09**: approved sample media placed under `tests/phase1/test-media/`; PD-06/PD-07 now PASS. Photos: 4 JPGs (under the 5-10 requested — non-blocking, only needed at T034/Phase 3 enrollment). Videos: known-person clip (as `known-person-walk.mp4` + original `RingVideo_20260909_132147.MP4`), `RingVideo_20260909_132235.MP4` (person clip), and 2 derived no-person segments. No low-light or two-person clip supplied — not required for the PD-07 pass criteria and not blocking the gate; useful later for Phase 3/4 acceptance tests (T036, T050).
