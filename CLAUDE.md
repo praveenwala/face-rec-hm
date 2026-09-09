@@ -4,10 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repository currently contains **no source code** — only a spec-kit (`speckit`) scaffold and the
-project's baseline requirements document (`Home_Assistant_Ring_Face_Recognition_Requirements.pdf`).
-There is no build, lint, or test tooling to run yet. When implementation work begins (Phase 1 below),
-update this section with the actual commands.
+This repository currently contains **no source code** — only a spec-kit (`speckit`) scaffold, the
+project's baseline requirements document (`Home_Assistant_Ring_Face_Recognition_Requirements.pdf`),
+and a planned-but-not-yet-implemented feature at
+`specs/001-front-door-person-identification/` (spec, plan, research, data model, contracts,
+quickstart, and pre-development validation gate). There is no build, lint, or test tooling to run
+yet — `/speckit-tasks` and `/speckit-implement` haven't run for this feature.
+
+Once implementation begins, the stack (per `specs/001-front-door-person-identification/plan.md`) is:
+Docker Compose orchestrating Frigate + Mosquitto MQTT (+ a throwaway Home Assistant container for
+Phase 1 validation only), no custom application code — Home Assistant automations/Jinja2 templates
+implement all identity/relationship/notification logic. Update this section with the actual run
+commands once `docker-compose.yml` and `tests/phase1/run_harness.sh` exist.
 
 ## Spec-kit workflow
 
