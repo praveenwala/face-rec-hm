@@ -151,33 +151,52 @@ never altered.
 **Purpose**: Objective per-photo validation with explicit classifications (US3) per
 `contracts/photo-quality.md`.
 
-- [ ] T022 [P] [US3] `FaceDetector` (`app/services/face_detector.py`): load Frigate's
-  `facedet.onnx` (YuNet via OpenCV FaceDetectorYN; host path verified — expected
-  `frigate/config/model_cache/facedet/facedet.onnx`, gitignored); **no silent Haar fallback**
-  (user-approved Phase 4 decision): missing/unloadable model → analysis fails cleanly with
-  `FACE_DETECTOR_UNAVAILABLE`, readiness semantics never silently change detector
-- [ ] T023 [P] [US3] Face size + count checks: `face_count`, `face_size_ratio` (area +
+- [x] T022 [P] [US3] `FaceDetector` (`app/services/face_detector.py`): load Frigate's
+  `facedet.onnx` (YuNet via OpenCV FaceDetectorYN) — **DONE 2026-09-10**: app-owned copy at
+  `enrollment-app/data/models/facedet.onnx` (gitignored; `scripts/fetch_models.sh` downloads
+  from `NickM-27/facenet-onnx` v1.0 — Apache-2.0, the same release Frigate 0.17.2 uses;
+  sha256 `321aa5a6…9294` verified, never a path inside the running Frigate container);
+  **no silent Haar fallback** (user-approved Phase 4 decision): missing/unloadable model →
+  `FACE_DETECTOR_UNAVAILABLE` (503 on re-analysis; upload degrades to PENDING with an
+  explicit `analysis_error`), readiness semantics never silently change detector
+- [x] T023 [P] [US3] Face size + count checks: `face_count`, `face_size_ratio` (area +
   per-axis); `face_count == 0` → `NO_FACE`; `face_count > 1` →
-  `REVIEW_REQUIRED`/`MULTIPLE_FACES` (FR-016/FR-017)
-- [ ] T024 [P] [US3] Sharpness (Laplacian variance) + brightness (mean luminance) + orientation
-  checks → `TOO_BLURRY`/`UNDEREXPOSED`/`OVEREXPOSED` (FR-012/FR-014); thresholds in
-  `QualityConfig` (initial, un-tuned — documented stance)
-- [ ] T025 [P] [US3] HEIC/HEIF normalization via ffmpeg → JPEG into `normalized/`; original
-  untouched; conversion failure → `UNSUPPORTED_FORMAT` (FR-018, research.md #6) — ⛔
-  **DEFERRED** pending explicit approval (no silent normalization; HEIC stays
-  `UNSUPPORTED_FORMAT`)
-- [ ] T026 [US3] `QualityService` pipeline (`app/services/quality_service.py`) wired into
-  upload: per-photo `quality_status` + `rejection_reason` + measurements/rejection_details
-  (FR-015/FR-016; objective vs. heuristic split)
-- [ ] T027 [US3] UI: per-photo status badges + reason + measurements rendered separately from
-  judgments (US3 scenario 6)
-- [ ] T028 [US3] Tests: valid upload → SUITABLE; corrupt file → `MEDIA_DECODE_FAILURE`
-  (never `NO_FACE`); unsupported type → `UNSUPPORTED_FORMAT`; no face → `NO_FACE`; tiny face →
-  `FACE_TOO_SMALL`; multiple faces → `REVIEW_REQUIRED` (spec testing list; fixtures are
-  public-domain/synthetic per research.md #10)
+  `REVIEW_REQUIRED`/`MULTIPLE_FACES` (FR-016/FR-017) — **DONE**: deterministic precedence in
+  `PhotoQualityService._analyze_bytes`; multi-face is a hard stop with an explicit
+  "only the intended person" note; no auto-select/crop
+- [x] T024 [P] [US3] Sharpness (Laplacian variance) + brightness (mean luminance) + orientation
+  checks → `TOO_BLURRY`/`UNDEREXPOSED`/`OVEREXPOSED` (FR-012/FR-014) — **DONE**: measured over
+  the face crop; thresholds in `QualityConfig` (`min_sharpness_laplacian=40.0`,
+  `brightness_min=40.0`, `brightness_max=220.0`) — initial conservative baselines, NOT
+  claimed as tuned (T033-style stance); exposure never phrased as day/night/indoor
+- [x] T025 [P] [US3] HEIC/HEIF normalization via ffmpeg → JPEG into `normalized/` — ⛔
+  **DEFERRED** (unchanged): HEIC stays `UNSUPPORTED_FORMAT` with the explicit convert note;
+  no silent normalization; no `normalized/` artifact is produced in Phase 4 and
+  `kind=normalized` returns an honest 404
+- [x] T026 [US3] `PhotoQualityService` pipeline (`app/services/quality_service.py`) wired into
+  upload: automatic per-photo analysis → `quality_status` + `rejection_reason` +
+  measurements/rejection_details (FR-015/FR-016; objective vs. heuristic split); explicit
+  re-analysis via `POST /api/people/{id}/photos/{photo_id}/analyze` — **DONE**: original
+  bytes never modified (in-memory EXIF-transposed working copy); `SUITABLE` never implies
+  approval/enrollment (those fields are never touched by analysis)
+- [x] T027 [US3] UI: per-photo status badges (✓ Suitable / ✕ Unsuitable / ⚠ Review required /
+  Pending) + reason + expandable measurements rendered separately from judgments
+  (US3 scenario 6) — **DONE**: `PhotoGrid.tsx` badge classes, human-readable reasons,
+  details `<dl>` (face count, face size %, sharpness, brightness, note), multi-face guidance,
+  Re-analyze action
+- [x] T028 [US3] Tests — **DONE**: `test_quality.py` (20 tests): valid upload → SUITABLE;
+  corrupt stored file → `MEDIA_DECODE_FAILURE` (never `NO_FACE`); no face → `NO_FACE`;
+  tiny face → `FACE_TOO_SMALL`; multiple faces → `REVIEW_REQUIRED`; blur/exposure fixtures;
+  missing model → explicit `FACE_DETECTOR_UNAVAILABLE` (upload PENDING + 503 re-analysis);
+  no silent fallback; approval/enrollment boundaries (never approved/enrolled, no Frigate
+  calls); original byte-for-byte untouched; no normalized artifact; fixtures are the single
+  public-domain astronaut.png (NASA, scikit-image sample) + derived synthetic images
+  (fixtures/README.md)
 
-**Checkpoint (Gate G4)**: Every upload receives an explicit classification; no generic
-"upload failed"; multi-face never silently accepted.
+**Checkpoint (Gate G4) — PASS 2026-09-10**: Every upload receives an explicit
+classification; no generic "upload failed"; multi-face never silently accepted. `pytest` →
+**98 passed**; 001 harness `run_harness.sh all` → **OVERALL PASS** unchanged. See
+validation-report.md Phase 4 section. Phase 5 actionable pending user review.
 
 ---
 

@@ -63,18 +63,27 @@ web application (`enrollment-app/` — FastAPI + SQLite backend, React/Vite fron
 Mac venv; NEVER the Pi) is the management surface for the known-person library: create
 people with user-supplied relationships, upload/validate/approve enrollment photos
 (Frigate-aligned YuNet quality checks, Phase 4), and an enrollment-readiness gate
-(>= 5 suitable approved photos, Phase 5). Phases 1–3 are complete and live: people CRUD
-and grouping, private multi-file photo upload with per-file results, thumbnail/file
-serving, photo delete, audit log — see
-`specs/002-known-person-enrollment-manager/validation-report.md`. Photos stay
-`quality_status=PENDING` until Phase 4 (no fabricated suitability). **Phase 6 (Frigate
-enrollment) is BLOCKED pending explicit approval** and Phase 7 (HA) is not implemented —
-enrollment routes return `501 FEATURE_NOT_ENABLED` and the UI shows a disabled
-"Enrollment not enabled in this phase" control. All biometric data lives under
+(>= 5 suitable approved photos, Phase 5). Phases 1–3 are complete, committed and pushed
+(Phase 3 checkpoint `9a02e07`), and **Phase 4 (Photo Quality Validation, T022–T028) is
+complete and validated (G4 = PASS) but NOT committed** (pending user review) — see
+`specs/002-known-person-enrollment-manager/validation-report.md`. Live: people CRUD and
+grouping, private multi-file photo upload (allowlist exactly JPEG/PNG/WEBP by content
+sniffing, never extension; HEIC/GIF/BMP/TIFF → `UNSUPPORTED_FORMAT`), automatic per-photo
+quality analysis (Frigate-aligned YuNet `facedet.onnx` in the app-owned gitignored cache,
+`scripts/fetch_models.sh`; face count / size ratio / sharpness / brightness →
+SUITABLE/UNSUITABLE/REVIEW_REQUIRED with explicit reasons; **no silent Haar fallback** —
+missing model → `FACE_DETECTOR_UNAVAILABLE`, uploads stay PENDING with an explicit
+`analysis_error`, re-analysis 503), explicit re-analysis endpoint + UI, thumbnail/file
+serving, photo delete, audit log. **Phase 5 (approval + readiness) is next, pending user
+approval — analysis never auto-approves: SUITABLE coexists with `approved=false`.**
+**Phase 6 (Frigate enrollment) is BLOCKED pending explicit approval** and Phase 7 (HA) is
+not implemented — enrollment routes return `501 FEATURE_NOT_ENABLED` and the UI shows a
+disabled "Enrollment not enabled in this phase" control. All biometric data lives under
 `enrollment-app/data/` (gitignored). Feature 001's T034 stays NOT STARTED; this app's
 validated readiness is the preferred future gate. Run: `enrollment-app/backend/run.sh`
 (127.0.0.1:8000) + `cd enrollment-app/frontend && npm run dev` (127.0.0.1:5173); tests:
-`enrollment-app/backend` venv → `python -m pytest app/tests`.
+`enrollment-app/backend` venv → `python -m pytest app/tests` (98 tests; detection tests
+need the model fetched via `scripts/fetch_models.sh`).
 
 Except for that enrollment app, this repo has no other application source code — only
 configuration (Docker Compose, Frigate, Mosquitto), scripts (`scripts/loop-test-video.sh`),

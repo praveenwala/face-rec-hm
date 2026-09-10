@@ -40,25 +40,40 @@ report.
 
 ## 3. Face detection engine for upload quality validation
 
-- **Decision**: Reuse **Frigate's own face-detection model** — `facedet.onnx` (cv2
-  FaceDetectorYN / YuNet) — which Frigate 0.17.2 already downloads into its model cache
-  (`/config/model_cache/facedet/` inside the container; host path verified at implementation,
-  expected `frigate/config/model_cache/facedet/facedet.onnx`, gitignored). OpenCV
-  (`opencv-python-headless`) loads it.
-- **Rationale**: Validating "suitable" with the exact same detector the runtime uses means a
-  photo accepted here is likely to actually produce a usable face when Frigate processes it —
-  the objective of the T034 media gate. YuNet is the detector T032/T033 already confirmed in
-  the running runtime (`FaceDetectorYN`), so no new model is introduced (constitution VI.2).
-- **Fallback**: if the model file is unavailable, fall back to OpenCV's bundled Haar cascade
-  with a documented, more conservative face-size default; the validation service never
-  invents a model path (constitution IV.2 — explicit failure state).
+- **Decision**: Reuse the **Frigate-aligned `facedet.onnx`** (cv2 FaceDetectorYN / YuNet)
+  used by the validated local Frigate 0.17.2 environment — which that environment already
+  downloads into its model cache (`/config/model_cache/facedet/` inside the container; host
+  path verified at implementation, expected `frigate/config/model_cache/facedet/facedet.onnx`,
+  gitignored). OpenCV (`opencv-python-headless`) loads it. No broader compatibility with
+  every Frigate installation/version is claimed — only the locally validated 0.17.2
+  environment.
+- **Rationale**: Validating "suitable" with the same detector the validated 0.17.2 runtime
+  uses means a photo accepted here is likely to actually produce a usable face when that
+  environment processes it — the objective of the T034 media gate. YuNet is the detector
+  T032/T033 already confirmed in the running runtime (`FaceDetectorYN`), so no new model is
+  introduced (constitution VI.2).
+- **Fallback**: **NONE — user-approved Phase 4 decision (2026-09-10)**: if the model file is
+  unavailable or unloadable, analysis fails cleanly with `FACE_DETECTOR_UNAVAILABLE` (upload
+  degrades to PENDING with an explicit `analysis_error`; explicit re-analysis returns 503).
+  There is NO silent fallback to Haar or any other detector — readiness semantics must never
+  silently change depending on which detector happened to load. A fallback detector may be
+  evaluated later only with explicit approval. The validation service never invents a model
+  path (constitution IV.2 — explicit failure state).
+- **Model acquisition (implemented)**: app-owned copy at
+  `enrollment-app/data/models/facedet.onnx` (gitignored), fetched by
+  `scripts/fetch_models.sh` from `NickM-27/facenet-onnx` v1.0 (Apache-2.0) — the same
+  release Frigate 0.17.2 downloads (`https://github.com/NickM-27/facenet-onnx/releases/download/v1.0/facedet.onnx`;
+  also copies from the local Frigate model cache when present); sha256 verified
+  (`321aa5a6afabf7ecc46a3d06bfab2b579dc96eb5c3be7edd365fa04502ad9294`). The app never
+  depends on the Frigate container being up.
 - **Alternatives considered**: A separate face-detection dependency (e.g. insightface,
   mediapipe) (rejected — new heavy dependency, and may disagree with Frigate's detector,
-  making "suitable" diverge from what Frigate accepts); Haar cascade only (rejected as primary
-  — weaker small-face detection than YuNet, which is the whole point of the gate).
-- **Constitution**: VI.1, VI.2, II.1.
-- **Status**: **[OPEN DECISION]** — defaulting to YuNet/facedet.onnx reuse; the fallback is
-  documented so no hard dependency is created.
+  making "suitable" diverge from what Frigate accepts); Haar cascade (rejected — weaker
+  small-face detection than YuNet, and a silent fallback would silently change readiness
+  semantics).
+- **Constitution**: VI.1, VI.2, II.1, IV.2.
+- **Status**: **RESOLVED** — YuNet/facedet.onnx reuse implemented (T022–T028, G4 PASS);
+  no fallback detector.
 
 ## 4. Face-size, sharpness, and brightness measurement approach
 
@@ -91,18 +106,19 @@ report.
 
 ## 6. HEIC/HEIF handling
 
-- **Decision**: Detect HEIC/HEIF by content (magic bytes) and extension; normalize via the
-  already-installed `ffmpeg` to JPEG into the photo's `normalized/` directory; the original
-  file is never modified (spec FR-011/FR-018). If ffmpeg conversion fails or ffmpeg is
-  missing, classify `UNSUPPORTED_FORMAT` with an explicit HEIC note.
-- **Rationale**: Matches the project's existing media policy exactly — `docs/testing/
-  local-mac-testing.md` §10 already documents HEIC → JPEG via ffmpeg and the
-  JPEG/PNG canonical formats. Pillow alone cannot decode HEIC reliably without the
-  `pillow-heif` dependency; ffmpeg is already a pinned project dependency (feature 001 PD-02).
-- **Alternatives considered**: `pillow-heif` (rejected — another native dependency when ffmpeg
-  already exists); rejecting HEIC outright (rejected — real household photo sets contain HEIC;
-  the brief requires normalization "if supported by the local decoder").
-- **Constitution**: VI.1, VI.2.
+- **Decision (implemented)**: Detect HEIC/HEIF by content (`ftyp` brand, never extension
+  alone) and **reject with `UNSUPPORTED_FORMAT`** (explicit note: convert to JPEG/PNG/WEBP).
+  ffmpeg normalization to JPEG into `normalized/` (research.md's earlier option) is
+  **DEFERRED pending explicit approval** — no silent normalization, no `normalized/`
+  artifact in Phase 4, `kind=normalized` returns 404. The original file is never modified
+  (spec FR-011/FR-018).
+- **Rationale**: Predictable enrollment-media contract and smaller attack/compatibility
+  surface (user-approved Phase 3/4 decision); the app allowlist is exactly JPEG/PNG/WEBP by
+  content. ffmpeg-based HEIC normalization remains a documented future option.
+- **Alternatives considered**: `pillow-heif` (rejected — another native dependency); ffmpeg
+  normalization now (rejected — needs explicit approval; deferred); accepting HEIC as-is
+  (rejected — Pillow cannot decode it reliably without pillow-heif).
+- **Constitution**: VI.1, VI.2, II.1.
 
 ## 7. Private storage layout and retention
 
@@ -220,7 +236,8 @@ report.
 
 ## Outcome
 
-All Technical Context unknowns are resolved with documented decisions. Three decisions are
-marked **[OPEN DECISION]** (hosting mode, frontend framework, face-detection engine) with
-recommended defaults that are safe to adopt and reversible before Phase 1 implementation.
-No `NEEDS CLARIFICATION` markers remain. Proceeding to Phase 1 design.
+All Technical Context unknowns are resolved with documented decisions. Hosting mode and the
+frontend framework were adopted as recommended; the face-detection engine decision was
+resolved to YuNet/facedet.onnx with **no fallback detector** and HEIC stays
+`UNSUPPORTED_FORMAT` pending explicit approval (both user-approved during Phase 3/4
+implementation). No `NEEDS CLARIFICATION` markers remain. Proceeding to Phase 1 design.

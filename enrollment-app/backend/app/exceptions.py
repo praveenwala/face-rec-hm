@@ -73,3 +73,12 @@ class FeatureNotEnabledError(AppError):
 
     status_code = 501
     code = ErrorCode.FEATURE_NOT_ENABLED
+
+
+class FaceDetectorUnavailableError(AppError):
+    """Phase 4: the approved YuNet detector is missing/unloadable. Analysis fails
+    cleanly with this 503 — there is NO silent fallback detector (user-approved
+    decision; readiness semantics must never silently change detector)."""
+
+    status_code = 503
+    code = ErrorCode.FACE_DETECTOR_UNAVAILABLE

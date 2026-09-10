@@ -29,6 +29,11 @@ cd enrollment-app/backend
 # Manual alternative:
 #   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 
+# Face-detection model (Phase 4) — downloads Frigate's facedet.onnx (YuNet) into the
+# gitignored app cache at enrollment-app/data/models/facedet.onnx, checksum-verified.
+# Prefers the local Frigate model cache when present, else the canonical GitHub release.
+enrollment-app/scripts/fetch_models.sh
+
 # Frontend — first run only:
 cd ../frontend
 npm install
@@ -62,7 +67,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   http://127.0.0.1:8000/api/people/x/enroll      # → 501 (FEATURE_NOT_ENABLED, Phase 6 blocked)
 
 cd enrollment-app/backend && source .venv/bin/activate
-python -m pytest app/tests -v                     # → 76 passed (Phases 1–3)
+python -m pytest app/tests -v                     # → 98 passed (Phases 1–4)
 
 cd <repo root>
 git status --short                                 # → no enrollment-app/data/ content
@@ -91,6 +96,10 @@ person is ever `ENROLLED` (not reachable before Phase 6).
 
 ## Phase 3 validation (G3)
 
+> Phase 3 is committed/pushed (checkpoint `9a02e07`). Its validation steps below still
+> apply; uploads now also get automatic Phase 4 analysis (see next section).
+
+
 ```bash
 # Create a synthetic person, then upload a mix of good and bad files (synthetic only)
 PID=$(curl -s -X POST http://127.0.0.1:8000/api/people \
@@ -111,9 +120,34 @@ curl -s -X DELETE http://127.0.0.1:8000/api/people/$PID                     # �
 
 UI: People page cards show "N uploaded photos"; **Photos** opens the detail page with the
 multi-file dropzone (drag-and-drop or picker), one result line per file, a thumbnail grid
-(photo, filename, dimensions, size), an explicit **PENDING** badge on every photo (quality
-analysis is Phase 4 — no fabricated suitability), and delete with inline confirmation. The
-enrollment control stays visibly disabled.
+(photo, filename, dimensions, size), and delete with inline confirmation. The enrollment
+control stays visibly disabled.
+
+## Phase 4 validation (G4)
+
+```bash
+# Any JPEG/PNG/WEBP upload is analyzed automatically. Using the public-domain astronaut
+# fixture: result is SUITABLE (1 face). Two of them side by side → REVIEW_REQUIRED +
+# MULTIPLE_FACES. A small/blurry/dark/bright crop → explicit UNSUITABLE reason.
+PID=$(curl -s -X POST http://127.0.0.1:8000/api/people \
+  -H 'Content-Type: application/json' \
+  -d '{"display_name":"Test Person","relationship":"Family"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+curl -s -X POST http://127.0.0.1:8000/api/people/$PID/photos \
+  -F 'files=@enrollment-app/backend/app/tests/fixtures/astronaut.png;type=image/png'
+#   → 201; result quality_status=SUITABLE, rejection_reason=null, approved=false
+
+# Explicit re-analysis (also proves SUITABLE never approves/enrolls):
+curl -s -X POST http://127.0.0.1:8000/api/people/$PID/photos/<photo_id>/analyze
+
+# Detector-unavailable path (no silent fallback): with facedet.onnx temporarily moved,
+# uploads stay PENDING with analysis_error FACE_DETECTOR_UNAVAILABLE and re-analysis
+# returns 503. Restore the model afterward (fetch_models.sh).
+```
+
+UI: photo cards show **✓ Suitable / ✕ Unsuitable / ⚠ Review required / Pending** badges,
+human-readable reasons (e.g. "Face too small", "Multiple faces detected"), expandable
+measurements (face count, face size %, sharpness, brightness), a **Re-analyze** action, and
+guidance on multi-face photos. Upload results show the analyzed per-file status.
 
 ## Automated tests (all phases)
 
@@ -122,8 +156,11 @@ cd enrollment-app/backend && source .venv/bin/activate
 python -m pytest app/tests -v
 ```
 
-Fixtures are generated public-domain/synthetic images (never household biometric media). The
-privacy tests assert the data path is gitignored and that deletion removes DB rows and files.
+Fixtures are generated public-domain/synthetic images (the single committed astronaut.png
+NASA public-domain sample plus derived synthetic variants — never household biometric
+media). Detection-dependent tests skip cleanly with an explicit message when the model has
+not been fetched. The privacy tests assert the data path is gitignored and that deletion
+removes DB rows and files.
 
 ## Walk-through (maps to spec US1–US6 — steps 1, 2, and 5 live; 3–4 land with Phases 4–5)
 
@@ -136,9 +173,9 @@ privacy tests assert the data path is gitignored and that deletion removes DB ro
    heading (US6). Confirm an audit entry `PERSON_CREATED` exists and that creating the person
    performed **no** Frigate action (SC-001 — no biometric data created anywhere).
 2. **Upload photos (US2)**: Drag a few JPEG/PNG/WEBP files into the dropzone (multi-file).
-   Each appears with its per-photo result — currently `PENDING` (stored, not yet analyzed);
-   from Phase 4 each will show `SUITABLE`, `UNSUITABLE`, or `REVIEW_REQUIRED` with a reason
-   (US3). Confirm the originals are byte-identical to what you uploaded (FR-011). Upload
+   Each appears with its per-photo result — the analyzed `SUITABLE`, `UNSUITABLE`, or
+   `REVIEW_REQUIRED` with a reason (US3), or `PENDING` only when the detector is
+   unavailable. Confirm the originals are byte-identical to what you uploaded (FR-011). Upload
    allowlist is exactly JPEG/PNG/WEBP (content-based, never extension): a HEIC/BMP/GIF/TIFF
    payload → `UNSUPPORTED_FORMAT` (HEIC normalization is deferred pending approval); a valid
    JPEG named `.txt` is accepted.

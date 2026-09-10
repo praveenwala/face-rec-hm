@@ -27,7 +27,7 @@ Every error response uses:
 | 409 | `IDENTITY_CONFLICT` (enrollment-level), `ENROLLED_PERSON_DELETE_REFUSED` |
 | 422 | `MEDIA_DECODE_FAILURE`, `NO_FACE_DETECTED`, `MULTIPLE_FACES`, `FACE_TOO_SMALL` (when reported as a blocking error), `NOT_READY` |
 | 500 | `STORAGE_FAILURE`, `DATABASE_FAILURE` |
-| 503 | `FRIGATE_UNAVAILABLE`, `FRIGATE_ENROLLMENT_FAILURE` |
+| 503 | `FACE_DETECTOR_UNAVAILABLE` (Phase 4: approved YuNet model missing/unloadable — no silent fallback), `FRIGATE_UNAVAILABLE`, `FRIGATE_ENROLLMENT_FAILURE` |
 
 Per-photo quality outcomes from a multi-upload are **data, not transport errors**: the upload
 endpoint returns `201` with one result object per file, each carrying its own
@@ -58,10 +58,11 @@ failures (e.g. zero readable files, storage failure).
 
 | Method & path | Body | Returns |
 |---|---|---|
-| `POST /api/people/{id}/photos` | `multipart/form-data`, field `files` (one or more) | `201` → `{ "results": [ { "photo_id", "original_filename", "quality_status", "rejection_reason", "measurements", "approved": false } ] }` — one result per file; upload alone never approves/enrolls. Rejected files carry `photo_id: null` and an explicit `rejection_reason` (`UNSUPPORTED_FORMAT`, `MEDIA_DECODE_FAILURE`, `FILE_TOO_LARGE`, `STORAGE_FAILURE`) and are never stored. Accepted files are `quality_status: PENDING` in Phase 3 (analysis is Phase 4). Upload allowlist is exactly **JPEG/PNG/WEBP**, decided by decoded/sniffed content — never by filename extension; valid BMP/GIF/TIFF/HEIC payloads are rejected `UNSUPPORTED_FORMAT` |
-| `GET /api/people/{id}/photos` | — | `{ "photos": [ PhotoSummary ] }` — metadata only (no bytes) |
-| `GET /api/people/{id}/photos/{photo_id}` | — | Photo metadata detail incl. all measurements |
-| `GET /api/people/{id}/photos/{photo_id}/file?kind=original\|normalized` | — | Image bytes (JPEG/PNG/etc.); loopback only. `kind=original` serves the untouched original; `kind=normalized` returns `404 PHOTO_NOT_FOUND` until Phase 4 produces normalized copies |
+| `POST /api/people/{id}/photos` | `multipart/form-data`, field `files` (one or more) | `201` → `{ "results": [ { "photo_id", "original_filename", "quality_status", "rejection_reason", "rejection_details", "measurements", "approved": false, "analysis_error"? } ] }` — one result per file; upload alone never approves/enrolls. Rejected files carry `photo_id: null` and an explicit `rejection_reason` (`UNSUPPORTED_FORMAT`, `MEDIA_DECODE_FAILURE`, `FILE_TOO_LARGE`, `STORAGE_FAILURE`) and are never stored. **Phase 4: analysis runs automatically on upload** — accepted files carry `quality_status` (`SUITABLE`/`UNSUITABLE`/`REVIEW_REQUIRED`/`PENDING`) plus `rejection_reason`/`rejection_details`/`measurements` (face_count, face_size_ratio, sharpness, brightness). If the face detector is unavailable the file is still stored and stays `PENDING` with `analysis_error: "FACE_DETECTOR_UNAVAILABLE"` (no fabricated classification, no silent fallback). Upload allowlist is exactly **JPEG/PNG/WEBP**, decided by decoded/sniffed content — never by filename extension; valid BMP/GIF/TIFF/HEIC payloads are rejected `UNSUPPORTED_FORMAT` |
+| `GET /api/people/{id}/photos` | — | `{ "photos": [ PhotoSummary ] }` — metadata only (no bytes), incl. `quality_status`/`rejection_reason` |
+| `GET /api/people/{id}/photos/{photo_id}` | — | Photo metadata detail incl. all measurements (`face_count`, `face_size_ratio`, `sharpness`, `brightness`, `measurements`, `rejection_details`) |
+| `POST /api/people/{id}/photos/{photo_id}/analyze` | — | **Phase 4 explicit re-analysis**: re-reads the stored original, re-runs the pipeline, overwrites quality metadata predictably; never touches `approved`/enrollment. Returns the updated Photo detail. `503 FACE_DETECTOR_UNAVAILABLE` if the detector cannot load; `404 PHOTO_NOT_FOUND` for unknown/cross-person ids |
+| `GET /api/people/{id}/photos/{photo_id}/file?kind=original\|normalized` | — | Image bytes (JPEG/PNG/etc.); loopback only. `kind=original` serves the untouched original; `kind=normalized` returns `404 PHOTO_NOT_FOUND` (no normalized artifact is produced in Phase 4 — HEIC normalization deferred) |
 | `GET /api/people/{id}/photos/{photo_id}/thumbnail` | — | Small preview (max ~300px) for the photo list/cards |
 | `POST /api/people/{id}/photos/{photo_id}/approve` | — | Photo; sets `approved=true` — an **explicit user action**, never automatic (FR-019/FR-023); updates readiness |
 | `POST /api/people/{id}/photos/{photo_id}/unapprove` | — | Photo; sets `approved=false` (approval revoked); updates readiness |

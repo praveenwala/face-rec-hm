@@ -39,6 +39,7 @@ body {
 .badge-pending { color: #bbb; }
 .badge-ok { color: #6ccb6c; border-color: #6ccb6c; }
 .badge-error { color: #e08787; border-color: #e08787; }
+.badge-review { color: #e8c46c; border-color: #c8a04a; }
 .badge-disabled { color: #bbb; border-color: #888; }
 .badge-status { color: #9db8e8; border-color: #4a6ab8; }
 
@@ -379,6 +380,54 @@ button.danger { color: #e08787; border-color: #a44; }
 }
 
 .photo-dims { color: #999; }
+
+.photo-reason { color: #e08787; }
+
+.photo-hint {
+  color: #c8a04a;
+  font-size: 0.74rem;
+}
+
+.photo-detail-note {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.78rem;
+  color: #999;
+  margin: 0;
+}
+
+.photo-details {
+  padding: 0.5rem 0.6rem;
+  border-top: 1px solid #444;
+  font-size: 0.78rem;
+}
+
+.photo-details dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.6rem;
+}
+
+.photo-details dt {
+  color: #999;
+}
+
+.photo-details dd {
+  margin: 0;
+  text-align: right;
+}
+
+.photo-actions {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0 0.6rem 0.5rem;
+}
+
+.photo-actions button {
+  flex: 1;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.75rem;
+}
 
 .photo-delete {
   margin: 0 0.6rem 0.6rem;

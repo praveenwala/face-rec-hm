@@ -91,7 +91,7 @@ localhost admin UI. No multi-user, no auth (POC), no LAN exposure.
 | III.2 — Identity/relationship separate | **PASS** | The feature's design invariant; `display_name` ≠ `frigate_identity_name` ≠ relationship. |
 | III.3 — Preserve the original security event | **PASS** | No interaction with 001's event path; SC-012 regression proves it. |
 | IV.1 — AI failure must not break HA | **PASS** | App is additive and independent; if it or Frigate fails, 001's pipeline and HA automations are unaffected. |
-| IV.2 — Every dependency needs a failure state | **PASS** | FRIGATE_UNAVAILABLE, FRIGATE_ENROLLMENT_FAILURE, STORAGE_FAILURE, DATABASE_FAILURE, decode≠no-face, model-file fallback — all explicit. |
+| IV.2 — Every dependency needs a failure state | **PASS** | FRIGATE_UNAVAILABLE, FRIGATE_ENROLLMENT_FAILURE, STORAGE_FAILURE, DATABASE_FAILURE, decode≠no-face, FACE_DETECTOR_UNAVAILABLE (no silent detector fallback) — all explicit. |
 | IV.3 — Don't treat unknown data as real data | **PASS** | `frigate.reachable: null` vs false; ERROR ≠ ENROLLED; decode failure ≠ NO_FACE. |
 | V.4/V.5 — Reproducible tests & acceptance criteria | **PASS** | pytest + quickstart walk-through + SC-001–SC-014 in spec. |
 | VI.1 — Minimize the stack | **JUSTIFIED DEVIATION** | The baseline stack has no management UI; a dedicated enrollment application is the brief's explicit new capability. Justification + simpler-alternative analysis in Complexity Tracking below. |
@@ -146,7 +146,7 @@ enrollment-app/
 │   │   │   ├── person_service.py     # CRUD + disable/enable + delete lifecycle
 │   │   │   ├── photo_service.py      # upload, metadata, delete, approval
 │   │   │   ├── quality_service.py    # validation pipeline (photo-quality.md)
-│   │   │   ├── face_detector.py      # YuNet (facedet.onnx) + Haar fallback
+│   │   │   ├── face_detector.py      # YuNet (facedet.onnx); NO fallback detector
 │   │   │   ├── readiness_service.py  # readiness calc (>= 5 suitable approved)
 │   │   │   ├── storage_service.py    # data/ paths, UUID dirs, traversal-safe
 │   │   │   ├── audit_service.py      # audit log writes
@@ -190,7 +190,9 @@ feature 001's `tests/phase1/test-media/photos/` is NOT adopted as app storage (r
 2. **Frontend framework** — React + Vite SPA (recommended default) vs. Next.js. Vite chosen
    (research.md #2).
 3. **Face-detection engine** — reuse Frigate's `facedet.onnx` (YuNet) via OpenCV (recommended
-   default) vs. another detector. YuNet chosen; Haar fallback documented (research.md #3).
+   default) vs. another detector. **RESOLVED 2026-09-10 (user-approved): YuNet only, NO
+   fallback detector** — missing/unloadable model → `FACE_DETECTOR_UNAVAILABLE` (research.md
+   #3; Phase 4 G4).
 4. **Delete-with-enrollment semantics** — refuse delete until enrollment removed explicitly
    (recommended default; FR-026) vs. cascade-delete with a single confirmation.
 5. **Phase 6 execution approval** — required before any Frigate integration task runs

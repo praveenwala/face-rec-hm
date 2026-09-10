@@ -28,11 +28,16 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.exceptions import PhotoNotFoundError, StorageError
-from app.models.enums import AuditAction, QualityStatus, RejectionReason
+from app.exceptions import (
+    FaceDetectorUnavailableError,
+    PhotoNotFoundError,
+    StorageError,
+)
+from app.models.enums import AuditAction, ErrorCode, QualityStatus, RejectionReason
 from app.models.photo import EnrollmentPhoto
 from app.services.audit_service import AuditService
 from app.services.person_service import PersonService
+from app.services.quality_service import PhotoQualityService
 from app.services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
@@ -184,16 +189,33 @@ class PhotoService:
             width=width,
             height=height,
             file_size=len(data),
-            # Phase 3 fields stay at their defaults — never fabricated (FR-012 etc.):
+            # Analysis (Phase 4) fills these in below; never fabricated beforehand:
             quality_status=QualityStatus.PENDING.value,
             approved=False,
             enrolled_in_frigate=False,
             measurements={"orientation": orientation} if orientation is not None else {},
         )
+        analysis_error: str | None = None
         self._session.add(photo)
         try:
             self._session.flush()  # assigns photo.id
             self._storage.write_thumbnail(person_id, photo.id, thumbnail)
+            # Phase 4: automatic per-photo quality analysis (contract: wired into
+            # upload). Runs on an in-memory EXIF-transposed copy; original untouched.
+            # Approval/enrollment are NEVER touched by analysis.
+            try:
+                PhotoQualityService(self._session, self._settings).analyze_uploaded(photo, data)
+            except FaceDetectorUnavailableError as exc:
+                # Detector unavailable → the photo is still validly ingested; analysis
+                # degrades cleanly to PENDING with an explicit, visible error — no
+                # silent fallback, no fabricated classification (Phase 4 decision).
+                # Keep any already-recorded ingestion measurements (e.g. orientation).
+                analysis_error = ErrorCode.FACE_DETECTOR_UNAVAILABLE.value
+                pending_measurements = dict(photo.measurements or {})
+                pending_measurements.update(
+                    {"analysis_error": analysis_error, "note": str(exc)}
+                )
+                photo.measurements = pending_measurements
             self._audit.record(
                 AuditAction.PHOTO_UPLOADED,
                 entity_type="photo",
@@ -204,6 +226,7 @@ class PhotoService:
                     "width": width,
                     "height": height,
                     "file_size": len(data),
+                    "quality_status": photo.quality_status,
                 },
             )
             self._session.commit()
@@ -216,14 +239,18 @@ class PhotoService:
             self._storage.delete_photo_files(person_id, stored_filename, photo.id)
             raise
 
-        return {
+        result = {
             "photo_id": photo.id,
             "original_filename": original_name,
             "quality_status": photo.quality_status,
-            "rejection_reason": None,
+            "rejection_reason": photo.rejection_reason,
+            "rejection_details": photo.rejection_details,
             "measurements": photo.measurements,
             "approved": photo.approved,
         }
+        if analysis_error is not None:
+            result["analysis_error"] = analysis_error
+        return result
 
     @staticmethod
     def _rejected(original_name: str, reason: RejectionReason, extra: dict | None = None) -> dict:
@@ -338,6 +365,10 @@ class PhotoService:
         detail = self.to_summary(photo)
         detail.update(
             {
+                "face_count": photo.face_count,
+                "face_size_ratio": photo.face_size_ratio,
+                "sharpness": photo.sharpness,
+                "brightness": photo.brightness,
                 "measurements": photo.measurements,
                 "rejection_details": photo.rejection_details,
                 "duplicate_group": photo.duplicate_group,

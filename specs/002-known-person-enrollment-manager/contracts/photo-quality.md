@@ -12,27 +12,29 @@ backend (`QualityConfig`), tunable after validation against real household photo
 
 ```text
 1. Size check            → reject if > MAX_UPLOAD_BYTES (default 20 MB)
-2. Content sniff          → mime_type by magic bytes (never extension alone)
-3. HEIC/HEIF detect       → yes → normalize via ffmpeg → JPEG (into normalized/);
-                            ffmpeg missing/fails → UNSUPPORTED_FORMAT (HEIC note)
-4. Pillow decode          → fail → UNSUPPORTED_FORMAT (known-but-undecodable)
-                            or MEDIA_DECODE_FAILURE (corrupt/truncated/unknown)
-5. EXIF orientation       → record raw orientation; apply exif_transpose before measuring
-6. Face detection         → Frigate's facedet.onnx (YuNet) via OpenCV FaceDetectorYN;
-                            fallback: OpenCV Haar (documented, more conservative);
-                            score_threshold aligned to Frigate's detection_threshold (0.7)
-7. face_count == 0        → UNSUITABLE (NO_FACE)
-8. face_count > 1         → REVIEW_REQUIRED (MULTIPLE_FACES)   ← hard stop, no auto-select
-9. face too small         → UNSUITABLE (FACE_TOO_SMALL)
-10. sharpness too low     → UNSUITABLE (TOO_BLURRY)
-11. brightness out of range → UNSUITABLE (UNDEREXPOSED | OVEREXPOSED)
-12. near-duplicate check  → REVIEW_REQUIRED (NEAR_DUPLICATE)   [Phase 5, where practical]
-13. all pass              → SUITABLE
+2. Content sniff          → mime_type by magic bytes (never extension alone);
+                            HEIC/HEIF detected here stays UNSUPPORTED_FORMAT (see below)
+3. Pillow decode          → fail → MEDIA_DECODE_FAILURE (corrupt/truncated/unknown)
+4. EXIF orientation       → record raw orientation; apply exif_transpose before measuring
+5. Face detection         → Frigate's facedet.onnx (YuNet) via OpenCV FaceDetectorYN;
+                            score_threshold aligned to Frigate's detection_threshold (0.7);
+                            detector missing/unloadable → FACE_DETECTOR_UNAVAILABLE
+                            (NO silent fallback detector — user-approved Phase 4 decision)
+6. face_count == 0        → UNSUITABLE (NO_FACE)
+7. face_count > 1         → REVIEW_REQUIRED (MULTIPLE_FACES)   ← hard stop, no auto-select
+8. face too small         → UNSUITABLE (FACE_TOO_SMALL)
+9. sharpness too low      → UNSUITABLE (TOO_BLURRY)
+10. brightness out of range → UNSUITABLE (UNDEREXPOSED | OVEREXPOSED)
+11. near-duplicate check  → REVIEW_REQUIRED (NEAR_DUPLICATE)   [Phase 5, where practical]
+12. all pass              → SUITABLE
 ```
 
-Steps 1–8 are always executed (Phase 4). Step 12 is added in Phase 5. Nothing in this
+Steps 1–10 are always executed (Phase 4). Step 11 is added in Phase 5. Nothing in this
 pipeline ever compares the photo against enrolled identities (FR-013 — no identity inference
-during quality validation).
+during quality validation). Classification precedence is exactly the order above — if
+multiple problems exist the FIRST blocking reason in this order is the canonical
+`rejection_reason`; all measurements are retained regardless (objective vs. heuristic split,
+FR-014).
 
 ## Quality states
 
@@ -53,8 +55,9 @@ during quality validation).
 | `TOO_BLURRY` | Laplacian variance below threshold | step 10 |
 | `UNDEREXPOSED` | Mean face luminance below minimum | step 11 |
 | `OVEREXPOSED` | Mean face luminance above maximum | step 11 |
-| `MEDIA_DECODE_FAILURE` | File could not be decoded (corrupt/truncated/unknown) | step 4 |
-| `UNSUPPORTED_FORMAT` | Recognized format the local stack cannot decode (incl. unnormalizable HEIC) | steps 3–4 |
+| `MEDIA_DECODE_FAILURE` | File could not be decoded (corrupt/truncated/unknown) | step 3 |
+| `UNSUPPORTED_FORMAT` | Recognized content outside the application allowlist, or HEIC/HEIF (normalization deferred) | ingestion (Phase 3) |
+| `FACE_DETECTOR_UNAVAILABLE` | The approved YuNet model is missing/unloadable — analysis fails cleanly (no silent fallback); uploads stay PENDING with an explicit `analysis_error`, re-analysis returns 503 | step 5 |
 | `NEAR_DUPLICATE` | Perceptual hash too close to an existing photo of the same person | step 12 (Phase 5) |
 | `FILE_TOO_LARGE` | Ingestion-level: upload exceeds `MAX_UPLOAD_BYTES` — rejected before any decode | step 1 |
 | `STORAGE_FAILURE` | Ingestion-level: could not write the file to private storage | steps 4–6 (write path) |
@@ -87,7 +90,7 @@ FR-016; feature 001's §10 media policy makes the same distinction). A photo car
 
 The UI must render the two groups separately (spec US3 scenario 6, FR-014).
 
-## Default thresholds (QualityConfig — initial, un-tuned)
+## Default thresholds (QualityConfig — INITIAL POC BASELINES, NOT PRODUCTION-TUNED)
 
 ```text
 MAX_UPLOAD_BYTES          = 20 * 1024 * 1024
@@ -119,6 +122,22 @@ status = DRAFT      if no photos
 - `READY` never triggers enrollment (FR-022, SC-006). Enrollment is only the explicit
   "Enroll Approved Photos" action (Phase 6).
 
+## Detector unavailability policy (explicit, user-approved)
+
+- The ONLY approved detector is the Frigate-aligned `facedet.onnx` (YuNet via OpenCV
+  `FaceDetectorYN`) used by the validated local Frigate 0.17.2 environment — so a photo
+  accepted here is likely to produce a usable face when that validated environment processes
+  it (the T034 media-gate objective). No claim of broader compatibility with every Frigate
+  installation/version is made.
+- If the model file is missing or cannot be loaded, analysis **fails cleanly** with
+  `FACE_DETECTOR_UNAVAILABLE` — there is NO silent fallback to Haar or any other detector
+  (readiness semantics must never silently change depending on which detector happened to
+  load). A fallback detector may be evaluated later only with explicit approval.
+- On upload, a missing detector degrades gracefully: the photo is still stored, stays
+  `PENDING`, and carries an explicit `analysis_error` in `measurements`. The explicit
+  re-analysis endpoint returns `503 FACE_DETECTOR_UNAVAILABLE`. No fabricated classification
+  is ever produced.
+
 ## Multi-face policy (explicit)
 
 - **Preferred**: exactly one usable face per enrollment photo.
@@ -134,8 +153,10 @@ status = DRAFT      if no photos
   decided by decoded/sniffed content (magic bytes + decode), never by filename extension.
   Valid images outside the allowlist (BMP, GIF, TIFF, and other Pillow-decodable formats)
   are rejected with `UNSUPPORTED_FORMAT` for the predictable enrollment-media workflow.
-- HEIC/HEIF: detected by content and rejected with `UNSUPPORTED_FORMAT`; normalization to
-  JPEG is deferred pending explicit approval (no silent normalization). The original file is
-  never modified (FR-011/FR-018).
+- HEIC/HEIF: detected by content (`ftyp` brand) and rejected with `UNSUPPORTED_FORMAT`
+  (note: convert to JPEG/PNG/WEBP). Normalization via ffmpeg (research.md #6) is deferred
+  pending explicit approval — no silent normalization, no `normalized/` artifact in
+  Phase 4 (`kind=normalized` returns 404). The original file is never modified
+  (FR-011/FR-018).
 - No universal format support is claimed — decode success is the test, exactly as in feature
   001's media policy (local-mac-testing.md §10).

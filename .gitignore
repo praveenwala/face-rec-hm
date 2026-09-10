@@ -33,6 +33,9 @@ frigate/recordings/
 *.heif
 !docs/**/*.png
 !docs/**/*.jpg
+# The single public-domain test fixture (NASA astronaut, see
+# enrollment-app/backend/app/tests/fixtures/README.md) is the only image committed
+!enrollment-app/backend/app/tests/fixtures/astronaut.png
 
 # Real relationship mapping — contains household names; only the .example template is tracked
 home-assistant/helpers/relationship_mapping.yaml

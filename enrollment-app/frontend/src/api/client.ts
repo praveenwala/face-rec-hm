@@ -82,6 +82,10 @@ export interface PhotoSummary {
 }
 
 export interface PhotoDetail extends PhotoSummary {
+  face_count: number | null
+  face_size_ratio: number | null
+  sharpness: number | null
+  brightness: number | null
   measurements: Record<string, unknown> | null
   rejection_details: Record<string, unknown> | null
   duplicate_group: string | null
@@ -167,6 +171,12 @@ export const api = {
 
   deletePhoto: (personId: string, photoId: string) =>
     request<void>(`/api/people/${personId}/photos/${photoId}`, { method: 'DELETE' }),
+
+  analyzePhoto: (personId: string, photoId: string) =>
+    request<PhotoDetail>(`/api/people/${personId}/photos/${photoId}/analyze`, {
+      method: 'POST',
+    }),
+
 
   audit: (personId?: string) => {
     const q = personId ? `?person_id=${encodeURIComponent(personId)}` : ''

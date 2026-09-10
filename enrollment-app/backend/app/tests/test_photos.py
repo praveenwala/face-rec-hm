@@ -19,6 +19,16 @@ from PIL import Image
 
 from app.models.enums import AuditAction, QualityStatus
 
+# Phase 4: analysis is automatic on upload. The solid-color fixtures below have no
+# face, so they classify NO_FACE/UNSUITABLE once analyzed; without the fetched model
+# uploads stay PENDING (analysis degrades cleanly). These assertions need the model.
+from app.tests.conftest import MODEL_AVAILABLE
+
+requires_model = pytest.mark.skipif(
+    not MODEL_AVAILABLE,
+    reason="face-detection model not fetched — run scripts/fetch_models.sh",
+)
+
 # ---------------------------------------------------------------- fixtures
 
 
@@ -90,14 +100,16 @@ def _upload(client, person_id: str, files: list[tuple[str, bytes, str]]):
 # ---------------------------------------------------------------- valid uploads
 
 
+@requires_model
 def test_upload_valid_jpeg_stored_and_listed(client, person, settings):
     jpeg = _jpeg_bytes()
     resp = _upload(client, person["id"], [("portrait.jpg", jpeg, "image/jpeg")])
     assert resp.status_code == 201, resp.text
     result = resp.json()["results"][0]
     assert result["photo_id"] is not None
-    assert result["quality_status"] == QualityStatus.PENDING.value
-    assert result["rejection_reason"] is None
+    # Phase 4: automatic analysis — this solid-color fixture has no face.
+    assert result["quality_status"] == QualityStatus.UNSUITABLE.value
+    assert result["rejection_reason"] == "NO_FACE"
     assert result["approved"] is False
 
     listing = client.get(f"/api/people/{person['id']}/photos").json()["photos"]
@@ -108,7 +120,7 @@ def test_upload_valid_jpeg_stored_and_listed(client, person, settings):
     assert p["mime_type"] == "image/jpeg"
     assert p["width"] == 640 and p["height"] == 480
     assert p["file_size"] == len(jpeg)
-    assert p["quality_status"] == QualityStatus.PENDING.value
+    assert p["quality_status"] == QualityStatus.UNSUITABLE.value
     assert p["approved"] is False
     assert p["thumbnail_url"].endswith(f"/photos/{p['id']}/thumbnail")
 
@@ -121,6 +133,7 @@ def test_upload_valid_jpeg_stored_and_listed(client, person, settings):
     assert stored.exists() and any(stored.iterdir())
 
 
+@requires_model
 def test_upload_valid_png_and_webp(client, person):
     resp = _upload(
         client,
@@ -131,8 +144,9 @@ def test_upload_valid_png_and_webp(client, person):
     results = resp.json()["results"]
     assert all(r["photo_id"] is not None for r in results)
     by_name = {r["original_filename"]: r for r in results}
-    assert by_name["a.png"]["quality_status"] == QualityStatus.PENDING.value
-    assert by_name["b.webp"]["quality_status"] == QualityStatus.PENDING.value
+    # Solid-color fixtures → analyzed as no-face.
+    assert by_name["a.png"]["quality_status"] == QualityStatus.UNSUITABLE.value
+    assert by_name["b.webp"]["quality_status"] == QualityStatus.UNSUITABLE.value
 
     photos = client.get(f"/api/people/{person['id']}/photos").json()["photos"]
     mimes = {p["original_filename"]: p["mime_type"] for p in photos}
@@ -170,13 +184,14 @@ def test_upload_heic_rejected_unsupported(client, person):
     assert "convert to JPEG/PNG/WEBP" in result["measurements"].get("note", "")
 
 
+@requires_model
 def test_upload_unsupported_extension_with_image_magic_accepted(client, person):
     # Extension is never trusted; a valid JPEG named .txt is still a valid image.
     resp = _upload(client, person["id"], [("photo.txt", _jpeg_bytes(), "application/octet-stream")])
     assert resp.status_code == 201, resp.text
     result = resp.json()["results"][0]
     assert result["photo_id"] is not None
-    assert result["rejection_reason"] is None
+    assert result["rejection_reason"] == "NO_FACE"  # accepted, then analyzed
 
 
 # ---------------------------------------------------------------- format allowlist
@@ -415,6 +430,7 @@ def test_person_delete_removes_photo_files(client, person, settings):
 # ---------------------------------------------------------------- audit
 
 
+@requires_model
 def test_photo_upload_and_delete_audited(client, person):
     photo_id = _upload(client, person["id"], [("a.jpg", _jpeg_bytes(), "image/jpeg")]).json()["results"][0]["photo_id"]
     client.delete(f"/api/people/{person['id']}/photos/{photo_id}")
@@ -429,7 +445,7 @@ def test_photo_upload_and_delete_audited(client, person):
     assert upload["entity_id"] == photo_id
     # Audit metadata only — no image bytes, no secrets, no absolute paths.
     details = upload["details"] or {}
-    assert set(details) == {"person_id", "mime_type", "width", "height", "file_size"}
+    assert set(details) == {"person_id", "mime_type", "width", "height", "file_size", "quality_status"}
     assert all(isinstance(v, (str, int, bool)) or v is None for v in details.values())
 
 
@@ -451,6 +467,7 @@ def test_malformed_photo_uuid_400(client, person):
 # ---------------------------------------------------------------- privacy invariants
 
 
+@requires_model
 def test_no_image_bytes_in_database(app, client, person):
     photo_id = _upload(client, person["id"], [("a.jpg", _jpeg_bytes(), "image/jpeg")]).json()["results"][0]["photo_id"]
     with app.state.session_factory() as session:
@@ -461,7 +478,7 @@ def test_no_image_bytes_in_database(app, client, person):
         # The row stores metadata + a relative storage path, never image bytes.
         assert row.storage_path.startswith(f"people/{person['id']}/original/")
         assert row.file_size > 0
-        assert row.face_count is None  # Phase 4 field, untouched
-        assert row.quality_status == QualityStatus.PENDING.value
+        assert row.face_count == 0  # Phase 4 analysis ran (solid color, no face)
+        assert row.quality_status == QualityStatus.UNSUITABLE.value
         assert row.approved is False
         assert row.enrolled_in_frigate is False

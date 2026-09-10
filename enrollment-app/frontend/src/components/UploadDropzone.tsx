@@ -7,9 +7,10 @@ interface UploadDropzoneProps {
   onUploaded: () => void
 }
 
-// Multi-file drag-and-drop + file-picker upload (Phase 3, T020). Every file in the
-// batch gets its own visible result — accepted (PENDING) or rejected with an explicit
-// reason. Uploading never approves or enrolls anything (FR-019/FR-022).
+// Multi-file drag-and-drop + file-picker upload (Phase 3–4, T020/T026). Every file in
+// the batch gets its own visible result — the analyzed quality status (Phase 4 runs
+// automatically on upload) or an explicit rejection reason. Uploading never approves
+// or enrolls anything (FR-019/FR-022).
 export default function UploadDropzone({ personId, onUploaded }: UploadDropzoneProps) {
   const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -55,7 +56,10 @@ export default function UploadDropzone({ personId, onUploaded }: UploadDropzoneP
         aria-label="Upload photos"
       >
         <p>Drag photos here, or click to choose files</p>
-        <p className="form-hint">JPEG, PNG, or WEBP · multi-file supported · nothing is enrolled</p>
+        <p className="form-hint">
+          JPEG, PNG, or WEBP · multi-file supported · analyzed automatically · nothing is
+          enrolled
+        </p>
         <input
           ref={inputRef}
           type="file"
@@ -75,7 +79,10 @@ export default function UploadDropzone({ personId, onUploaded }: UploadDropzoneP
             <li key={`${r.original_filename}-${i}`} className={r.photo_id ? 'result-ok' : 'result-rejected'}>
               <span className="result-name">{r.original_filename}</span>
               {r.photo_id ? (
-                <span className="badge badge-status">PENDING — stored, not yet analyzed</span>
+                <span className="badge badge-status">
+                  {r.quality_status ?? 'PENDING'}
+                  {r.rejection_reason ? ` — ${r.rejection_reason}` : ''}
+                </span>
               ) : (
                 <span className="badge badge-error">Rejected: {r.rejection_reason ?? 'unknown'}</span>
               )}

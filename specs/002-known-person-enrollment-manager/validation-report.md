@@ -293,13 +293,141 @@ go2rtc source restored to `known-person-walk.mp4`). Photo ingestion is entirely 
   image bytes in SQLite; audit details metadata-only; no absolute private paths in any API
   response.
 
+## Phase 4 (Photo Quality Validation) — Gate G4
+
+**Status: PASS — 2026-09-10.** Objective per-photo quality analysis with explicit
+classifications is implemented, wired into upload, and verified end-to-end. T022–T028
+complete; `pytest` → **98 passed** (78 Phase 1–3 + 20 Phase 4); 001 harness → **OVERALL
+PASS** unchanged.
+
+**Phase 3 checkpoint note**: Phase 3 was committed and pushed to `origin/main` as
+`9a02e07` ("feat: add private enrollment photo management") after user approval — the
+allowlist tightening (exactly JPEG/PNG/WEBP by content, HEIC/GIF/BMP/TIFF →
+`UNSUPPORTED_FORMAT`) is part of that commit.
+
+### T022 — Face detector (Frigate-aligned YuNet, no silent fallback)
+
+- **Model**: `facedet.onnx` — YuNet (`cv2.FaceDetectorYN`), the **Frigate-aligned
+  `facedet.onnx` used by the validated local Frigate 0.17.2 environment**
+  (`frigate/data_processing/real_time/face.py`). No broader compatibility with every
+  Frigate installation/version is claimed — only the locally validated 0.17.2 environment.
+- **Provenance**: packaged by `NickM-27/facenet-onnx` (Apache-2.0), release v1.0 — the same
+  release the validated Frigate 0.17.2 environment downloads
+  (`https://github.com/NickM-27/facenet-onnx/releases/download/v1.0/facedet.onnx`).
+- **Runtime location**: app-owned private cache `enrollment-app/data/models/facedet.onnx`
+  (gitignored). `scripts/fetch_models.sh` copies it from the local Frigate model cache
+  (`frigate/config/model_cache/facedet/facedet.onnx`) when present, else downloads from the
+  canonical GitHub release; the sha256 is always verified
+  (`321aa5a6afabf7ecc46a3d06bfab2b579dc96eb5c3be7edd365fa04502ad9294` — verified on this
+  host). The app never depends on the Frigate container being up.
+- **App-owned vs borrowed**: app-owned copy in the gitignored runtime cache; the Frigate
+  container path is only a preferred copy source for the fetch script.
+- **No silent Haar fallback** (user-approved Phase 4 decision): missing/unloadable model →
+  `FaceDetectorUnavailableError` (`503 FACE_DETECTOR_UNAVAILABLE` on re-analysis; upload
+  degrades to `PENDING` with an explicit `analysis_error`, photo still stored). Verified by
+  `test_detector_missing_model_raises_explicit_error_no_fallback`,
+  `test_upload_with_missing_model_degrades_cleanly`,
+  `test_analyze_missing_model_returns_503`.
+
+### T023–T024 — Face count, size, sharpness, brightness
+
+- `face_count == 0` → `UNSUITABLE`/`NO_FACE`; `> 1` → `REVIEW_REQUIRED`/`MULTIPLE_FACES`
+  (hard stop, no auto-select; note: "For enrollment, use an image containing only the
+  intended person").
+- Face size: `face_size_ratio` (primary-face area / image area) + per-axis ratios;
+  `FACE_TOO_SMALL` when below `QualityConfig` baselines (`min_face_area_ratio=0.01`,
+  `min_face_width/height_ratio=0.08`).
+- Sharpness: variance of Laplacian over the grayscale face crop; `TOO_BLURRY` below
+  `min_sharpness_laplacian=40.0`.
+- Brightness: mean luminance (0–255) over the face crop; `UNDEREXPOSED` below 40,
+  `OVEREXPOSED` above 220. Labeled purely as exposure heuristics — never phrased as
+  day/night/indoor (contract).
+- **Threshold status**: all values are **INITIAL POC BASELINES — NOT PRODUCTION-TUNED**
+  (same stance as feature 001 T033): `min_face_detect_score=0.7`,
+  `min_face_area_ratio=0.01`, `min_face_width_ratio=0.08`, `min_face_height_ratio=0.08`,
+  `min_sharpness_laplacian=40.0`, `brightness_min=40.0`, `brightness_max=220.0`. Not
+  described as proven-optimal; NOT tuned on household media yet (user rule #19).
+  Configurable in `QualityConfig`; any future tuning must be audited.
+- Orientation: raw EXIF orientation recorded; `exif_transpose` applied to the in-memory
+  working copy before measuring; original bytes never modified (verified byte-for-byte).
+
+### T025 — HEIC normalization: DEFERRED (unchanged)
+
+HEIC/HEIF stays `UNSUPPORTED_FORMAT` with the explicit convert note; no silent
+normalization; no `normalized/` artifact produced in Phase 4; `kind=normalized` returns an
+honest 404. ffmpeg normalization (research.md #6) waits for explicit approval.
+
+### T026 — Analysis pipeline wired into upload + explicit re-analysis
+
+- `PhotoQualityService` (`app/services/quality_service.py`) runs automatically after each
+  accepted upload (in-memory EXIF-transposed copy; original untouched): decode → face
+  detection → measurements → deterministic classification (contract precedence) → persisted
+  metadata. Approval/enrollment fields are never touched by analysis.
+- `POST /api/people/{id}/photos/{photo_id}/analyze` provides explicit re-analysis
+  (re-reads stored original, overwrites metadata predictably, never approves/enrolls);
+  404 for unknown/cross-person ids, 503 when the detector is unavailable.
+- Detector unavailable on upload → photo still ingested, `PENDING` +
+  `analysis_error: FACE_DETECTOR_UNAVAILABLE` (no fabricated classification).
+
+### T027 — Frontend quality UI
+
+- Photo cards show real results: **✓ Suitable / ✕ Unsuitable / ⚠ Review required /
+  Pending** badges + human-readable reason (e.g. "Face too small", "Multiple faces
+  detected"), expandable measurements (face count, face size %, sharpness, brightness,
+  note), a **Re-analyze** action, and multi-face guidance ("For enrollment, use an image
+  containing only the intended person."). No identity/relationship confidence is ever
+  shown (none exists). Upload results show the analyzed per-file status.
+- `npm run build` clean (tsc + vite).
+
+### T028 — Tests
+
+`python -m pytest app/tests -q` → **98 passed**. New `test_quality.py` (20 tests):
+detector loads + finds the fixture face; missing model → explicit error / upload-PENDING /
+503 re-analysis, no cached fallback; upload → SUITABLE (measurements sane); NO_FACE;
+MULTIPLE_FACES (count 2, guidance note); FACE_TOO_SMALL (detected but below floor);
+TOO_BLURRY; UNDEREXPOSED; OVEREXPOSED; suitable never auto-approved/enrolled (DB row +
+person record checks); analysis never calls Frigate (no Frigate symbols in the pipeline
+modules; flags stay off through re-analysis); re-analysis deterministic;
+corrupt-stored-file re-analysis → `MEDIA_DECODE_FAILURE` (never NO_FACE); cross-person
+analyze 404; malformed UUID 400; measurements persisted / original byte-for-byte / no
+normalized or approved copies; Phase 3 preview + delete still work on analyzed photos;
+classification precedence documented.
+
+Fixtures: the single committed public-domain image `astronaut.png` (scikit-image sample
+photo of astronaut Eileen Collins, NASA public domain, sha256
+`88431cd9…cb5`; see `app/tests/fixtures/README.md`) + derived synthetic images (resize,
+composite, blur, brightness) generated at test time. No household/biometric media.
+
+### Live smoke (real server, loopback)
+
+Uploaded the astronaut fixture via the API: result `SUITABLE` (face_count 1, ratio 0.041,
+sharpness ~886, brightness ~156); two-face composite → `REVIEW_REQUIRED`/`MULTIPLE_FACES`;
+re-analysis returned identical results; original served byte-for-byte. Runtime DB reset to
+clean state afterward.
+
+### Feature 001 regression (SC-012)
+
+`tests/phase1/run_harness.sh all` → **OVERALL PASS** (positive, negative,
+identity-unavailable, failure-classes all PASS; go2rtc source restored to
+`known-person-walk.mp4`). Face analysis is entirely local to `enrollment-app/` — no
+Ring/HA/Frigate behavior changed.
+
+### Privacy
+
+- No household images used; no face embeddings generated; no biometric identity created;
+  detector output is geometry/quality metadata only; no face crops stored; no raw image
+  bytes in DB/logs; no Frigate face-library changes; normalized copies not produced.
+- `enrollment-app/data/` (incl. `models/facedet.onnx`) remains gitignored; `git status`
+  shows no data content, no runtime images, no `app.db`.
+
 ## Gating
 
 **Gate G1 = PASS** (Phase 1 report above).
 **Gate G2 = PASS.**
-**Gate G3 = PASS.** Phase 4 (Photo Quality Validation) is actionable pending the user's
-review of this report (hard stop per the approved implementation authorization; nothing
-committed or pushed for Phase 3).
+**Gate G3 = PASS** (committed + pushed as `9a02e07`).
+**Gate G4 = PASS** (Phase 4 report above). Phase 5 (Approval + Readiness) is actionable
+pending the user's review of this report (hard stop per the approved implementation
+authorization; nothing committed or pushed for Phase 4).
 
 ## Blocking issues
 
@@ -311,3 +439,6 @@ None. Non-blocking observations:
 - This sandbox reaps background dev servers between shell commands, so the live
   proxy/networking checks were performed within single commands; on a normal Mac the two
   terminal workflow (`run.sh` + `npm run dev`) persists as documented.
+- The app-owned detector cache means tests need the model fetched once
+  (`scripts/fetch_models.sh`) — detection-dependent tests skip cleanly with an explicit
+  message when it is absent, and uploads still work (PENDING + `analysis_error`).

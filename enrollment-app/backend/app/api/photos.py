@@ -1,15 +1,18 @@
-"""Photo endpoints (Phase 3, contracts/rest-api.md).
+"""Photo endpoints (Phase 3–4, contracts/rest-api.md).
 
 POST   /api/people/{id}/photos                       — multi-file upload (per-file results)
 GET    /api/people/{id}/photos                       — metadata list (no bytes, no paths)
 GET    /api/people/{id}/photos/{photo_id}            — metadata detail
+POST   /api/people/{id}/photos/{photo_id}/analyze    — explicit re-analysis (Phase 4)
 GET    /api/people/{id}/photos/{photo_id}/file?kind=original|normalized — image bytes
 GET    /api/people/{id}/photos/{photo_id}/thumbnail  — small preview (max ~300px)
 DELETE /api/people/{id}/photos/{photo_id}            — 204; row + original/normalized/approved + thumb
 
-Phase 3 boundary: ingestion only — no face detection, no quality classification
-(beyond PENDING), no approval, no enrollment. `kind=normalized` is not produced
-until Phase 4 and returns an explicit 404.
+Phase 4: analysis is automatic on upload (per-file quality_status + measurements);
+re-analysis is an explicit action. Detector unavailable → 503
+FACE_DETECTOR_UNAVAILABLE (no silent fallback). Approval is Phase 5;
+enrollment is Phase 6 (501 stubs). `kind=normalized` is not produced in this
+phase (HEIC normalization deferred) and returns an explicit 404.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from app.config import Settings
 from app.exceptions import PhotoNotFoundError, ValidationAppError
 from app.models.enums import ErrorCode
 from app.services.photo_service import PhotoService
+from app.services.quality_service import PhotoQualityService
 
 router = APIRouter(prefix="/api/people", tags=["photos"])
 
@@ -62,6 +66,21 @@ def get_photo(
         parse_uuid(person_id, name="person id"),
         parse_uuid(photo_id, name="photo id"),
     )
+
+
+@router.post("/{person_id}/photos/{photo_id}/analyze")
+def analyze_photo(
+    person_id: str,
+    photo_id: str,
+    service: PhotoService = Depends(_service),
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    pid = parse_uuid(person_id, name="person id")
+    phid = parse_uuid(photo_id, name="photo id")
+    service.get_photo(pid, phid)  # ownership check → 404 (incl. cross-person)
+    PhotoQualityService(session, settings).analyze_photo(pid, phid)
+    return service.get_photo(pid, phid)
 
 
 @router.get("/{person_id}/photos/{photo_id}/file")

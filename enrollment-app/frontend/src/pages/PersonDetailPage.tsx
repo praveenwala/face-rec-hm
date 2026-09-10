@@ -9,9 +9,9 @@ interface PersonDetailPageProps {
   onBack: () => void
 }
 
-// Phase 3 person detail: metadata + private photo management (US2/US5). Quality
-// stays PENDING — analysis, approval, and readiness arrive in Phases 4–5, and
-// Frigate enrollment is Phase 6 (never presented here as available).
+// Phase 3–4 person detail: metadata + private photo management (US2/US5) + automatic
+// per-photo quality analysis (US3). Approval and readiness are Phase 5; Frigate
+// enrollment is Phase 6 (never presented here as available).
 export default function PersonDetailPage({ personId, onBack }: PersonDetailPageProps) {
   const [person, setPerson] = useState<PersonDetail | null>(null)
   const [photos, setPhotos] = useState<PhotoSummary[]>([])
@@ -80,9 +80,10 @@ export default function PersonDetailPage({ personId, onBack }: PersonDetailPageP
       </div>
 
       <p className="modal-hint">
-        Photos are stored privately on this machine only. Quality checks (Phase 4), explicit
-        approval, and readiness (Phase 5) come next; Frigate enrollment is not enabled in this
-        phase.
+        Photos are stored privately on this machine only. Quality analysis runs automatically
+        on upload (face count, size, sharpness, brightness). Explicit approval and readiness
+        (Phase 5) come next; Frigate enrollment is not enabled in this phase. A suitable photo
+        is never auto-approved or auto-enrolled.
       </p>
     </section>
   )
