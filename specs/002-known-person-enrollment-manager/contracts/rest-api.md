@@ -24,7 +24,7 @@ Every error response uses:
 |---|---|
 | 400 | `VALIDATION_ERROR`, `UNSUPPORTED_FORMAT` (upload-level), `IDENTITY_CONFLICT` (create-level), `QUALITY_REJECTED` |
 | 404 | `PERSON_NOT_FOUND`, `PHOTO_NOT_FOUND` |
-| 409 | `IDENTITY_CONFLICT` (enrollment-level), `ENROLLED_PERSON_DELETE_REFUSED` |
+| 409 | `IDENTITY_CONFLICT` (enrollment-level), `ENROLLED_PERSON_DELETE_REFUSED`, `PHOTO_NOT_APPROVABLE` (approval attempted on a non-`SUITABLE` photo) |
 | 422 | `MEDIA_DECODE_FAILURE`, `NO_FACE_DETECTED`, `MULTIPLE_FACES`, `FACE_TOO_SMALL` (when reported as a blocking error), `NOT_READY` |
 | 500 | `STORAGE_FAILURE`, `DATABASE_FAILURE` |
 | 503 | `FACE_DETECTOR_UNAVAILABLE` (Phase 4: approved YuNet model missing/unloadable — no silent fallback), `FRIGATE_UNAVAILABLE`, `FRIGATE_ENROLLMENT_FAILURE` |
@@ -48,7 +48,7 @@ failures (e.g. zero readable files, storage failure).
 
 | Method & path | Body | Returns |
 |---|---|---|
-| `GET /api/people` | — | `{ "people": [ PersonSummary ] }` — each summary: `id`, `display_name`, `relationship`, `enabled`, `enrollment_status`, `suitable_count`, `photo_count`, `representative_photo_url` |
+| `GET /api/people` | — | `{ "people": [ PersonSummary ] }` — each summary: `id`, `display_name`, `relationship`, `enabled`, `enrollment_status`, `approved_suitable_count` (deduped, Phase 5), `suitable_count`, `photo_count`, `representative_photo_url` |
 | `POST /api/people` | `{ "display_name": str, "relationship": "Family\|Friend\|Neighbor\|Other Known" }` | `201` → Person; `400` validation; **never performs any enrollment action** |
 | `GET /api/people/{id}` | — | Person detail: all fields incl. `frigate_identity_name`, `enrollment_status`, counts |
 | `PATCH /api/people/{id}` | any of `{ "display_name"?, "relationship"?, "enabled"? }` | Person; renaming `display_name` never touches `frigate_identity_name` |
@@ -59,20 +59,20 @@ failures (e.g. zero readable files, storage failure).
 | Method & path | Body | Returns |
 |---|---|---|
 | `POST /api/people/{id}/photos` | `multipart/form-data`, field `files` (one or more) | `201` → `{ "results": [ { "photo_id", "original_filename", "quality_status", "rejection_reason", "rejection_details", "measurements", "approved": false, "analysis_error"? } ] }` — one result per file; upload alone never approves/enrolls. Rejected files carry `photo_id: null` and an explicit `rejection_reason` (`UNSUPPORTED_FORMAT`, `MEDIA_DECODE_FAILURE`, `FILE_TOO_LARGE`, `STORAGE_FAILURE`) and are never stored. **Phase 4: analysis runs automatically on upload** — accepted files carry `quality_status` (`SUITABLE`/`UNSUITABLE`/`REVIEW_REQUIRED`/`PENDING`) plus `rejection_reason`/`rejection_details`/`measurements` (face_count, face_size_ratio, sharpness, brightness). If the face detector is unavailable the file is still stored and stays `PENDING` with `analysis_error: "FACE_DETECTOR_UNAVAILABLE"` (no fabricated classification, no silent fallback). Upload allowlist is exactly **JPEG/PNG/WEBP**, decided by decoded/sniffed content — never by filename extension; valid BMP/GIF/TIFF/HEIC payloads are rejected `UNSUPPORTED_FORMAT` |
-| `GET /api/people/{id}/photos` | — | `{ "photos": [ PhotoSummary ] }` — metadata only (no bytes), incl. `quality_status`/`rejection_reason` |
+| `GET /api/people/{id}/photos` | — | `{ "photos": [ PhotoSummary ] }` — metadata only (no bytes), incl. `quality_status`/`rejection_reason` and the Phase 5 advisory `near_duplicate` (`{distance, threshold, photo_id}` \| null — visual similarity advisory; the photo stays `SUITABLE`, approval is not blocked) |
 | `GET /api/people/{id}/photos/{photo_id}` | — | Photo metadata detail incl. all measurements (`face_count`, `face_size_ratio`, `sharpness`, `brightness`, `measurements`, `rejection_details`) |
 | `POST /api/people/{id}/photos/{photo_id}/analyze` | — | **Phase 4 explicit re-analysis**: re-reads the stored original, re-runs the pipeline, overwrites quality metadata predictably; never touches `approved`/enrollment. Returns the updated Photo detail. `503 FACE_DETECTOR_UNAVAILABLE` if the detector cannot load; `404 PHOTO_NOT_FOUND` for unknown/cross-person ids |
 | `GET /api/people/{id}/photos/{photo_id}/file?kind=original\|normalized` | — | Image bytes (JPEG/PNG/etc.); loopback only. `kind=original` serves the untouched original; `kind=normalized` returns `404 PHOTO_NOT_FOUND` (no normalized artifact is produced in Phase 4 — HEIC normalization deferred) |
 | `GET /api/people/{id}/photos/{photo_id}/thumbnail` | — | Small preview (max ~300px) for the photo list/cards |
-| `POST /api/people/{id}/photos/{photo_id}/approve` | — | Photo; sets `approved=true` — an **explicit user action**, never automatic (FR-019/FR-023); updates readiness |
-| `POST /api/people/{id}/photos/{photo_id}/unapprove` | — | Photo; sets `approved=false` (approval revoked); updates readiness |
+| `POST /api/people/{id}/photos/{photo_id}/approve` | — | Photo; sets `approved=true` — an **explicit user action**, never automatic (FR-019/FR-023); **only `quality_status == SUITABLE` may be approved** — anything else → `409 PHOTO_NOT_APPROVABLE`; idempotent (already-approved → 200, no duplicate audit); updates readiness. Cross-person id → `404` (no existence leak). Never changes `quality_status`, never enrolls |
+| `POST /api/people/{id}/photos/{photo_id}/unapprove` | — | Photo; sets `approved=false` (approval revoked); idempotent; updates readiness; never touches quality analysis |
 | `DELETE /api/people/{id}/photos/{photo_id}` | — | `204`; removes DB row + files in `original/`, `normalized/`, `approved/` |
 
 ### Readiness
 
 | Method & path | Returns |
 |---|---|
-| `GET /api/people/{id}/readiness` | `{ "person_id", "suitable_count", "required_min": 5, "status": "DRAFT\|NOT_READY\|READY", "missing": [...], "diversity": {...} }` |
+| `GET /api/people/{id}/readiness` | `{ "person_id", "status": "DRAFT\|NOT_READY\|READY", "minimum_required": 5, "approved_suitable_count", "remaining_required", "total_uploaded", "suitable_count", "approved_count", "review_required_count", "unsuitable_count", "enrollment_enabled": false, "near_duplicate_advisory": bool, "missing": [...], "diversity": {...} }` — `approved_suitable_count` counts `SUITABLE AND approved` with **each exact-duplicate group counted at most once** (SHA-256 `duplicate_group`); `suitable_count` is total SUITABLE regardless of approval; `near_duplicate_advisory` is informational only (UI shows a variety recommendation; it never downgrades `READY`); `READY` means "sufficient explicitly approved photo set" and never triggers enrollment; no private paths. `404 PERSON_NOT_FOUND` for unknown id |
 
 ### Enrollment (Phase 6 — BLOCKED until explicitly approved)
 
@@ -91,3 +91,14 @@ failures (e.g. zero readable files, storage failure).
 - No endpoint creates, deletes, or mutates Frigate state except the three Phase 6 endpoints,
   and those are blocked until approval (FR-030).
 - All mutations are recorded in the audit log (FR-031).
+
+## Audit events (Phase 5 additions)
+
+- `PHOTO_APPROVED` — explicit approval of a `SUITABLE` photo (details: `person_id` only).
+- `PHOTO_UNAPPROVED` — approval revoked, including automatic revocation when reanalysis
+  degrades a previously approved photo away from `SUITABLE` (details: `person_id`,
+  `reason: "quality_degraded"` where applicable).
+- `READINESS_CHANGED` — recorded **only** on an effective `NOT_READY ↔ READY` transition
+  (never on every photo mutation); details: `{from, to, approved_suitable_count}`. No
+  misleading events while still NOT_READY. Details never contain image bytes, embeddings,
+  or filesystem paths.

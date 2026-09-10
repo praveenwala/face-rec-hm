@@ -67,7 +67,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   http://127.0.0.1:8000/api/people/x/enroll      # → 501 (FEATURE_NOT_ENABLED, Phase 6 blocked)
 
 cd enrollment-app/backend && source .venv/bin/activate
-python -m pytest app/tests -v                     # → 98 passed (Phases 1–4)
+python -m pytest app/tests -v                     # → 115 passed (Phases 1–5)
 
 cd <repo root>
 git status --short                                 # → no enrollment-app/data/ content
@@ -162,11 +162,11 @@ media). Detection-dependent tests skip cleanly with an explicit message when the
 not been fetched. The privacy tests assert the data path is gitignored and that deletion
 removes DB rows and files.
 
-## Walk-through (maps to spec US1–US6 — steps 1, 2, and 5 live; 3–4 land with Phases 4–5)
+## Walk-through (maps to spec US1–US6 — all steps live as of Phases 4–5)
 
 > Steps 1, 2, and 5 (people + photo management, US1/US2/US5/US6) are implemented as of
-> Phase 3 — see the Phase 2/3 validation sections above. Steps 3–4 (quality + readiness)
-> land with Phases 4–5.
+> Phase 3 — see the Phase 2/3 validation sections above. Step 3 (quality) landed with
+> Phase 4; step 4 (approval + readiness) landed with Phase 5.
 
 1. **Create a person (US1)**: Add Person → display name + relationship (Family/Friend/
    Neighbor/Other Known). Verify the People page shows the card grouped under the right
@@ -184,11 +184,21 @@ removes DB rows and files.
    (`FACE_TOO_SMALL`), a blurry shot (`TOO_BLURRY`), and a photo with two people
    (`REVIEW_REQUIRED` + `MULTIPLE_FACES` — not silently accepted, FR-017). Measurements and
    judgments render as separate sections (FR-014).
-4. **Approval + readiness (US4)**: Approve suitable photos. Readiness badge shows
-   `n / 5 suitable photos` and `NOT_READY` below 5; at 5+ approved suitable photos it shows
-   `READY`. Confirm `UNSUITABLE`/`REVIEW_REQUIRED`/unapproved photos never count (US4
-   scenario 3), and that reaching `READY` does nothing by itself — no enrollment button fires,
-   no Frigate API is called (SC-006).
+4. **Approval + readiness (US4)**: Approve suitable photos — only `SUITABLE` photos offer
+   an Approve action (UNSUITABLE/REVIEW_REQUIRED/PENDING show none; a forced API call gets
+   `409 PHOTO_NOT_APPROVABLE`). The readiness card shows `n / 5 approved suitable photos`
+   and `NOT READY` below 5; at 5+ **distinct** approved suitable photos it shows
+   `READY FOR ENROLLMENT` (exact duplicates share a SHA-256 `duplicate_group` and count
+   once, so the same photo ×5 can never reach READY). **Near-duplicates are advisory
+   only**: a photo similar to another stays `SUITABLE` (badge shows "⚠ Advisory: visually
+   similar…", never Review Required), can still be approved, and counts toward the gate —
+   the readiness panel only shows a "more pose/expression variety" recommendation.
+   Confirm `UNSUITABLE`/`REVIEW_REQUIRED`/unapproved photos never count (US4 scenario 3),
+   unapproving one of 5 drops back to `NOT_READY`, deleting an approved photo recalculates
+   readiness, and that reaching `READY` does nothing by itself — no enrollment button
+   fires, no Frigate API is called (SC-006). `READY` means "sufficient explicitly approved
+   photo set", never ENROLLED; `frigate_identity_name` stays NULL and
+   `enrolled_in_frigate` stays false.
 5. **Manage (US5/US6)**: Rename the person (verify `frigate_identity_name` — not yet set —
    would be untouched; no re-enrollment concept applies pre-Phase-6), change relationship
    (card moves groups), disable (record preserved, marked disabled), delete with confirmation

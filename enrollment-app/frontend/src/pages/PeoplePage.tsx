@@ -33,12 +33,17 @@ function PersonCard({ person, onOpen, onEdit, onToggleEnabled, onDelete }: Perso
         </div>
         <div className="card-meta">
           {person.relationship} · {person.photo_count} uploaded photo
-          {person.photo_count === 1 ? '' : 's'}
+          {person.photo_count === 1 ? '' : 's'} · {person.suitable_count} approved suitable
         </div>
         <div className="card-meta">
-          <span className="badge badge-status">{person.enrollment_status}</span>
-          {/* Uploaded photos show no quality claim yet — analysis is Phase 4, readiness
-              Phase 5, representative photo comes from approved uploads then. */}
+          <span
+            className={`badge ${
+              person.enrollment_status === 'READY' ? 'badge-ok' : 'badge-status'
+            }`}
+          >
+            {person.enrollment_status === 'READY' ? 'READY' : person.enrollment_status}
+          </span>
+          {/* READY is never shown as ENROLLED — Phase 6 has not occurred (rule #22). */}
         </div>
         <div className="card-actions">
           <button type="button" className="primary" onClick={() => onOpen(person.id)}>

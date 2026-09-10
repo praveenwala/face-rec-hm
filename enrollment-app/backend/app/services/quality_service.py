@@ -1,4 +1,4 @@
-"""PhotoQualityService — Phase 4, T023–T026.
+"""PhotoQualityService — Phase 4–5, T023–T026 + Phase 5 reanalysis semantics.
 
 Per-photo objective analysis pipeline (contracts/photo-quality.md), wired into
 upload (automatic) and available as an explicit re-analysis action:
@@ -7,14 +7,24 @@ upload (automatic) and available as an explicit re-analysis action:
     face detection (Frigate-aligned YuNet) → objective measurements →
     deterministic classification → persisted metadata
 
-Boundaries (Phase 4):
+Boundaries:
 - The stored original is never modified; no normalized artifact is produced in
   this phase (HEIC normalization is deferred) — analysis works on an in-memory
   EXIF-transposed copy only.
 - Classification follows the contract precedence exactly (decode → detector →
   NO_FACE → MULTIPLE_FACES → FACE_TOO_SMALL → TOO_BLURRY → exposure → SUITABLE).
-- ``quality_status == SUITABLE`` never implies approval or enrollment: this
-  service never touches ``approved`` / ``enrolled_in_frigate`` / identity fields.
+- ``quality_status == SUITABLE`` never implies approval or enrollment: analysis
+  never sets ``approved`` / ``enrolled_in_frigate`` / identity fields.
+- Phase 5: a perceptual hash (pHash) is recorded per photo (advisory image-
+  redundancy metadata, never identity); near-duplicates of an existing same-person
+  photo are flagged ADVISORY ONLY — quality_status is never changed by them and
+  they never block approval (user rule #16).
+- Phase 5 reanalysis safety: if an APPROVED photo is reanalyzed into anything
+  other than SUITABLE, approval is automatically cleared (with audit + readiness
+  recalc) — an unsuitable photo must never remain approved (user rule #25). If
+  reanalysis FAILS (e.g. FACE_DETECTOR_UNAVAILABLE), the prior quality/approval
+  state is preserved untouched — no destructive loss on temporary failure (rule
+  #26).
 - Detector unavailable → ``FaceDetectorUnavailableError`` propagates; the caller
   decides (upload degrades to PENDING with an explicit analysis_error; the
   re-analysis endpoint returns 503). No silent fallback, no fabricated results.
@@ -31,9 +41,12 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.exceptions import PhotoNotFoundError, StorageError
-from app.models.enums import QualityStatus, RejectionReason
+from app.models.enums import AuditAction, QualityStatus, RejectionReason
 from app.models.photo import EnrollmentPhoto
+from app.services.audit_service import AuditService
+from app.services.duplicate_service import hamming_distance, perceptual_hash
 from app.services.face_detector import FaceDetectionService
+from app.services.readiness_service import ReadinessService
 from app.services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
@@ -58,6 +71,8 @@ class PhotoQualityService:
         self._settings = settings
         self._storage = StorageService(settings)
         self._detector = FaceDetectionService(settings)
+        self._audit = AuditService(session)
+        self._readiness = ReadinessService(session, settings)
 
     # ---- entry points ----------------------------------------------------------
 
@@ -66,10 +81,17 @@ class PhotoQualityService:
         the upload transaction commits. Never touches approval/enrollment fields."""
         result = self._analyze_bytes(data)
         self._apply_to_photo(photo, result)
+        self._near_duplicate_advisory(photo, result)
         return result
 
     def analyze_photo(self, person_id: str, photo_id: str) -> dict:
-        """Re-analyze a stored photo (explicit action). Own unit of work (commits)."""
+        """Re-analyze a stored photo (explicit action). Own unit of work (commits).
+
+        Phase 5 safety: if the photo was APPROVED and the new result is anything
+        other than SUITABLE, approval is cleared (audit PHOTO_UNAPPROVED) and
+        readiness is recalculated. If analysis raises (e.g. detector unavailable),
+        nothing has been written — prior quality/approval state is preserved.
+        """
         photo = self._session.get(EnrollmentPhoto, photo_id)
         if photo is None or photo.person_id != person_id:
             raise PhotoNotFoundError(f"Photo {photo_id} not found for person {person_id}")
@@ -80,9 +102,30 @@ class PhotoQualityService:
                 f"Stored file for photo {photo_id} is missing",
                 details={"photo_id": photo_id},
             ) from exc
-        result = self._analyze_bytes(data)
+        was_approved = photo.approved
+        result = self._analyze_bytes(data)  # raises before any write on failure
         self._apply_to_photo(photo, result)
+        self._near_duplicate_advisory(photo, result)
+
+        cleared_approval = False
+        if was_approved and photo.quality_status != QualityStatus.SUITABLE.value:
+            # An unsuitable photo must never remain approved (user rule #25).
+            photo.approved = False
+            cleared_approval = True
+            self._audit.record(
+                AuditAction.PHOTO_UNAPPROVED,
+                entity_type="photo",
+                entity_id=photo.id,
+                details={
+                    "person_id": person_id,
+                    "reason": "reanalysis_degraded",
+                    "quality_status": photo.quality_status,
+                    "rejection_reason": photo.rejection_reason,
+                },
+            )
         self._session.commit()
+        if cleared_approval:
+            self._readiness.sync_person_status(person_id)  # audits READINESS_CHANGED if it transitions
         return result
 
     # ---- pipeline --------------------------------------------------------------
@@ -122,6 +165,8 @@ class PhotoQualityService:
         }
         if orientation is not None:
             measurements["orientation"] = orientation
+        # Phase 5: advisory image-redundancy fingerprint (never identity).
+        measurements["perceptual_hash"] = perceptual_hash(work, self._settings.quality)
 
         if face_count == 0:
             return self._classify(
@@ -247,6 +292,53 @@ class PhotoQualityService:
             None,
             measurements=measurements,
         )
+
+    # ---- Phase 5 advisory near-duplicate metadata ---------------------------------
+
+    def _near_duplicate_advisory(self, photo: EnrollmentPhoto, result: dict) -> None:
+        """Advisory-only: if this photo's pHash is within DUP_HASH_DISTANCE of an
+        existing SAME-PERSON photo, record advisory metadata. Never changes
+        quality_status, never blocks approval, never auto-deletes (user rule #16).
+        Runs only when a perceptual hash is available (SUITABLE-or-measured path)."""
+        m = result["measurements"]
+        if not m or "perceptual_hash" not in m:
+            return
+        own_hash = m["perceptual_hash"]
+        threshold = self._settings.quality.dup_hash_distance
+
+        others = (
+            self._session.query(EnrollmentPhoto)
+            .filter(
+                EnrollmentPhoto.person_id == photo.person_id,
+                EnrollmentPhoto.id != photo.id,
+            )
+            .all()
+        )
+        nearest: tuple[int, str] | None = None
+        for other in others:
+            other_m = other.measurements or {}
+            other_hash = other_m.get("perceptual_hash")
+            if not isinstance(other_hash, int):
+                continue
+            dist = hamming_distance(own_hash, other_hash)
+            if nearest is None or dist < nearest[0]:
+                nearest = (dist, other.id)
+
+        if nearest is not None and nearest[0] <= threshold:
+            m["near_duplicate_advisory"] = {
+                "distance": nearest[0],
+                "threshold": threshold,
+                "photo_id": nearest[1],
+            }
+            # Advisory is carried in measurements only — quality_status is untouched.
+            details = result.get("rejection_details") or {}
+            details["advisory"] = (
+                "Near duplicate of an existing photo (advisory — no automatic rejection). "
+                "For enrollment variety, prefer a clearly different pose/angle."
+            )
+            result["rejection_details"] = details
+            photo.measurements = m  # JSON column mutation needs reassignment
+            photo.rejection_details = details
 
     @staticmethod
     def _classify(

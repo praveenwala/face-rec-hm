@@ -2,7 +2,7 @@
 
 **Feature**: [Known Person Enrollment Manager](./spec.md)
 **Date**: 2026-09-10
-**Executed by**: Claude Code, per tasks T001–T021 (Phases 1–3)
+**Executed by**: Claude Code, per tasks T001–T033 (Phases 1–5)
 
 This is a living document (feature 001 convention): update it, don't recreate it, as each
 phase completes.
@@ -420,14 +420,122 @@ Ring/HA/Frigate behavior changed.
 - `enrollment-app/data/` (incl. `models/facedet.onnx`) remains gitignored; `git status`
   shows no data content, no runtime images, no `app.db`.
 
+## Phase 5 (Enrollment Readiness) — Gate G5
+
+**Status: PASS — 2026-09-10.** Explicit photo approval, exact-duplicate protection,
+readiness calculation (≥ 5 distinct approved suitable photos → READY), reanalysis-safe
+approval semantics, and the readiness UI are implemented and verified. T029–T033 complete;
+`pytest` → **115 passed** (98 Phase 1–4 + 17 Phase 5); 001 harness → **OVERALL PASS**
+unchanged.
+
+**Phase 4 checkpoint note**: Phase 4 was committed and pushed to `origin/main` as `16eb3f2`
+("feat: add enrollment photo quality validation") after user approval.
+
+### T029 — Readiness service + endpoint
+
+- `ReadinessService` (`app/services/readiness_service.py`):
+  `approved_suitable_count` = count of `SUITABLE AND approved` photos with **each
+  exact-duplicate group (`duplicate_group`, SHA-256) counted at most once** (legacy null
+  rows count as unique). `minimum_required = 5` (matches feature 001's T034 gate).
+- `GET /api/people/{id}/readiness` returns the approved Phase 5 shape: `person_id`,
+  `status` (`DRAFT`/`NOT_READY`/`READY`), `minimum_required`, `approved_suitable_count`,
+  `remaining_required`, `total_uploaded`, `suitable_count`, `approved_count`,
+  `review_required_count`, `unsuitable_count`, `enrollment_enabled: false`, `missing`,
+  `diversity`. No private paths. Person summaries reuse the deduped count.
+- Readiness recomputes on upload, approve/unapprove, delete, and quality-changing
+  reanalysis; `READINESS_CHANGED` is audited only on an effective `NOT_READY ↔ READY`
+  transition (details `{from, to, approved_suitable_count}`).
+
+### T030 — Approval (explicit, SUITABLE-only, idempotent)
+
+- `POST /api/people/{id}/photos/{photo_id}/approve` and `.../unapprove`
+  (`PhotoService.approve/unapprove`). Approval is a user action only — never automatic,
+  never during upload, never driven by detector score (FR-019/FR-023).
+- Only `quality_status == SUITABLE` may be approved; PENDING/UNSUITABLE/REVIEW_REQUIRED →
+  `409 PHOTO_NOT_APPROVABLE` (explicit conflict, never silently ignored). Idempotent:
+  repeated approve/unapprove return 200 without duplicate audit entries. Cross-person id →
+  404 (no existence leak). Approval never changes `quality_status`, never enrolls.
+- `PHOTO_APPROVED` / `PHOTO_UNAPPROVED` audit events; details metadata-only.
+
+### T031 — Duplicate handling (exact + advisory near-duplicate)
+
+- **Exact duplicates**: SHA-256 of the stored original computed at upload; byte-identical
+  uploads share a `duplicate_group`. Only one member of an exact-duplicate group counts
+  toward readiness — the same photo uploaded 5× can never reach READY (verified by test).
+- **Near-duplicates**: perceptual hash (pure-numpy pHash, DCT-based 16×16 → 256 bits;
+  Hamming distance ≤ 8) — **advisory only** (user-approved G5 semantics): the photo stays
+  `SUITABLE`, is **never** downgraded to `REVIEW_REQUIRED` solely for similarity, is never
+  blocked from approval, and nothing is deleted. Advisory representation:
+  `near_duplicate_advisory` (distance/threshold/photo reference) in `measurements`,
+  `near_duplicate` in photo summaries, and `near_duplicate_advisory: true` in the
+  readiness response (UI shows a variety recommendation, never a downgrade). Both
+  near-duplicate photos may be approved and both count toward the ≥ 5 gate (verified by
+  `test_near_duplicate_is_advisory_only` and `test_near_duplicate_set_can_still_reach_ready`).
+  Near-duplicate detection is image redundancy, never face identity.
+- pHash is also stored in `measurements` for auditability. Implementation:
+  `app/services/duplicate_service.py` (all built-ins; no new heavy deps).
+
+### T032 — Frontend (approval + readiness, READY ≠ ENROLLED)
+
+- **Photo cards** (`PhotoGrid.tsx`): SUITABLE photos show an explicit **Approve** action;
+  approved photos show ✓ Approved + **Unapprove**. UNSUITABLE/REVIEW_REQUIRED/PENDING show
+  no approval action (no force-approve path in the MVP).
+- **Readiness card** (`PersonDetailPage.tsx`): "N / 5 approved suitable photos — NOT
+  READY / READY FOR ENROLLMENT" with the required-remaining hint; below it
+  "Biometric enrollment is disabled in this phase." The wording is always **READY FOR
+  ENROLLMENT**, never ENROLLED.
+- **Contextual disabled enrollment control**: NOT_READY → "Enrollment unavailable — at
+  least 5 approved suitable photos required"; READY → "Ready for enrollment — enrollment
+  is not enabled in this phase." Always disabled; no call fires from clicking it (not
+  wired to the 501 route).
+- **People cards** (`PeoplePage.tsx`): display name, relationship, enabled/disabled,
+  uploaded-photo count, **approved-suitable count**, and readiness status badge — never
+  "Enrolled".
+- `npm run build` clean (tsc + vite).
+
+### T033 — Tests
+
+`python -m pytest app/tests -q` → **116 passed**. New `test_readiness.py` (18 tests):
+
+| Area | Coverage |
+|---|---|
+| Approval | SUITABLE approved; PENDING/UNSUITABLE/REVIEW_REQUIRED → `PHOTO_NOT_APPROVABLE`; idempotent approve/unapprove; cross-person approval 404; approval never changes `quality_status`; approval never enrolls |
+| Readiness | 0/1/4 → NOT_READY; 5/6+ → READY; 5 suitable but 4 approved → NOT_READY; 4 approved + unsuitable → NOT_READY; 4 approved + review-required → NOT_READY; deleting an approved photo from 5 → NOT_READY; unapproving 1 of 5 → NOT_READY; re-approving the fifth → READY |
+| Duplicates | exact: same image ×5 approved → NOT_READY (single credit per SHA-256 group); distinct set → READY. Near-duplicate advisory: pHash-close images both stay `SUITABLE` (`rejection_reason` null), advisory metadata visible (distance ≤ 8, photo reference, summary field), no silent approval (`approved=false` until explicit), both approvable and both count; five visually-similar byte-distinct approved photos → READY (advisory never downgrades); readiness `near_duplicate_advisory` flag surfaces the UI variety recommendation |
+| Reanalysis | SUITABLE+approved reanalyzed to UNSUITABLE → approval auto-cleared (`PHOTO_UNAPPROVED` with `reason: quality_degraded`), readiness recalculated; SUITABLE+approved + detector temporarily unavailable → prior quality state and approval preserved, failure reported, no accidental readiness transition |
+| Enrollment isolation | READY transition makes **0** Frigate calls / embedding generations / identity-folder creations / MQTT / HA calls; `frigate_identity_name` stays NULL; `enrolled_in_frigate` stays false for all photos |
+| Phase 3 regression | preview/delete still work on approved photos; representative-photo reference safely cleared on delete |
+
+Fixtures remain the single public-domain `astronaut.png` + derived synthetic variants
+(resize, composite, blur, brightness, solid color) — no household/biometric media.
+
+### Feature 001 regression (SC-012)
+
+`tests/phase1/run_harness.sh all` → **OVERALL PASS** (positive, negative,
+identity-unavailable, failure-classes all PASS; go2rtc source restored to
+`known-person-walk.mp4`). Approval/readiness is entirely local to `enrollment-app/` — no
+Ring/HA/Frigate behavior changed.
+
+### Privacy
+
+- Approval records are metadata only (person_id/photo_id/status); no image bytes in DB;
+  no embeddings; no Frigate identity; no face crops; no private paths in API responses;
+  runtime photos/models/db gitignored; audit logs contain no biometric content; no secrets.
+- The model binary `enrollment-app/data/models/facedet.onnx` and `app.db` remain
+  gitignored and are never staged.
+
 ## Gating
 
 **Gate G1 = PASS** (Phase 1 report above).
 **Gate G2 = PASS.**
 **Gate G3 = PASS** (committed + pushed as `9a02e07`).
-**Gate G4 = PASS** (Phase 4 report above). Phase 5 (Approval + Readiness) is actionable
-pending the user's review of this report (hard stop per the approved implementation
-authorization; nothing committed or pushed for Phase 4).
+**Gate G4 = PASS** (committed + pushed as `16eb3f2`).
+**Gate G5 = PASS** (Phase 5 report above, incl. the near-duplicate advisory correction:
+implementation and tests verified — near-duplicates are advisory-only metadata that never
+change `quality_status`, never block approval, and never reduce readiness; contracts/data
+model updated to match). Phase 6 (Frigate enrollment) is actionable pending the user's
+explicit review of this report (hard stop per the approved implementation authorization;
+nothing committed or pushed for Phase 5).
 
 ## Blocking issues
 

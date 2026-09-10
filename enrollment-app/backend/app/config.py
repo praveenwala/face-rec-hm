@@ -52,6 +52,12 @@ class QualityConfig:
     # Frigate rescale guard for very tall images
     max_detection_height: int = 1080
 
+    # Phase 5 — duplicate handling (contracts/photo-quality.md):
+    min_approved_suitable: int = 5  # readiness gate: >= 5 approved suitable non-duplicate photos
+    dup_hash_distance: int = 8  # pHash hamming distance → NEAR_DUPLICATE advisory (advisory only in MVP)
+    dup_hash_size: int = 16  # pHash 16x16 (research.md #5)
+    dup_hash_highfreq: int = 4  # pHash high-frequency factor (research.md #5)
+
 
 @dataclass(frozen=True)
 class Settings:

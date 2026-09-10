@@ -25,14 +25,17 @@ backend (`QualityConfig`), tunable after validation against real household photo
 8. face too small         → UNSUITABLE (FACE_TOO_SMALL)
 9. sharpness too low      → UNSUITABLE (TOO_BLURRY)
 10. brightness out of range → UNSUITABLE (UNDEREXPOSED | OVEREXPOSED)
-11. near-duplicate check  → REVIEW_REQUIRED (NEAR_DUPLICATE)   [Phase 5, where practical]
+11. near-duplicate check  → ADVISORY ONLY (Phase 5): records near_duplicate_advisory
+                            metadata (distance/threshold/photo reference); NEVER changes
+                            quality_status, NEVER blocks approval, NEVER deletes
 12. all pass              → SUITABLE
 ```
 
-Steps 1–10 are always executed (Phase 4). Step 11 is added in Phase 5. Nothing in this
-pipeline ever compares the photo against enrolled identities (FR-013 — no identity inference
-during quality validation). Classification precedence is exactly the order above — if
-multiple problems exist the FIRST blocking reason in this order is the canonical
+Steps 1–10 are always executed (Phase 4). Step 11 is added in Phase 5 as **advisory-only
+metadata** (user-approved Phase 5 semantics — see "Advisory vs. rejection" below). Nothing
+in this pipeline ever compares the photo against enrolled identities (FR-013 — no identity
+inference during quality validation). Classification precedence is exactly the order above —
+if multiple problems exist the FIRST blocking reason in this order is the canonical
 `rejection_reason`; all measurements are retained regardless (objective vs. heuristic split,
 FR-014).
 
@@ -43,22 +46,22 @@ FR-014).
 | `PENDING` | Processing in progress | No |
 | `SUITABLE` | Passed all checks; exactly one usable face | Yes, once explicitly approved |
 | `UNSUITABLE` | Failed a blocking check | No |
-| `REVIEW_REQUIRED` | Needs human review (multi-face, near-duplicate) | No (until resolved) |
+| `REVIEW_REQUIRED` | Needs human review — **genuine quality conditions only** (currently: multi-face). Near visual similarity alone NEVER produces this status | No (until resolved) |
 
 ## Rejection reasons (canonical enum)
 
 | Code | Meaning | Maps from |
 |---|---|---|
-| `NO_FACE` | Decoded fine; zero faces detected | pipeline step 7 |
-| `MULTIPLE_FACES` | More than one face detected; not silently accepted | step 8 |
-| `FACE_TOO_SMALL` | Primary face below the minimum size | step 9 |
-| `TOO_BLURRY` | Laplacian variance below threshold | step 10 |
-| `UNDEREXPOSED` | Mean face luminance below minimum | step 11 |
-| `OVEREXPOSED` | Mean face luminance above maximum | step 11 |
+| `NO_FACE` | Decoded fine; zero faces detected | pipeline step 6 |
+| `MULTIPLE_FACES` | More than one face detected; not silently accepted | step 7 |
+| `FACE_TOO_SMALL` | Primary face below the minimum size | step 8 |
+| `TOO_BLURRY` | Laplacian variance below threshold | step 9 |
+| `UNDEREXPOSED` | Mean face luminance below minimum | step 10 |
+| `OVEREXPOSED` | Mean face luminance above maximum | step 10 |
 | `MEDIA_DECODE_FAILURE` | File could not be decoded (corrupt/truncated/unknown) | step 3 |
 | `UNSUPPORTED_FORMAT` | Recognized content outside the application allowlist, or HEIC/HEIF (normalization deferred) | ingestion (Phase 3) |
 | `FACE_DETECTOR_UNAVAILABLE` | The approved YuNet model is missing/unloadable — analysis fails cleanly (no silent fallback); uploads stay PENDING with an explicit `analysis_error`, re-analysis returns 503 | step 5 |
-| `NEAR_DUPLICATE` | Perceptual hash too close to an existing photo of the same person | step 12 (Phase 5) |
+| `NEAR_DUPLICATE` | **Advisory only — never a `rejection_reason`.** See "Advisory vs. rejection" below | advisory step 11 (Phase 5) |
 | `FILE_TOO_LARGE` | Ingestion-level: upload exceeds `MAX_UPLOAD_BYTES` — rejected before any decode | step 1 |
 | `STORAGE_FAILURE` | Ingestion-level: could not write the file to private storage | steps 4–6 (write path) |
 
@@ -80,7 +83,7 @@ FR-016; feature 001's §10 media policy makes the same distinction). A photo car
 | face_size_ratio | Objective | Primary face box area / image area (+ per-axis ratios) |
 | sharpness (Laplacian variance) | Objective | Variance over the grayscale face crop |
 | brightness (mean luminance 0–255) | Objective | Mean over the face crop |
-| perceptual hash (Phase 5) | Objective | pHash value + distance to nearest same-person photo |
+| perceptual hash (Phase 5) | Objective | pHash value + `near_duplicate_advisory` (distance ≤ `DUP_HASH_DISTANCE`, threshold, photo reference) — **advisory only** |
 
 | Judgment | Type | Notes |
 |---|---|---|
@@ -107,20 +110,81 @@ DUP_HASH_DISTANCE         = 8           # pHash 16x16 hamming distance (Phase 5)
 Any value may be tuned after real-photo validation; tuning MUST be recorded in the audit log
 and in the validation report, never silently (constitution II.2, V.4).
 
+## Advisory vs. rejection (user-approved Phase 5 distinction)
+
+Two separate concepts, deliberately never conflated:
+
+- **Objective quality** (`quality_status`): `PENDING \| SUITABLE \| UNSUITABLE \|
+  REVIEW_REQUIRED`. Only genuine quality conditions produce a rejection — currently
+  `MULTIPLE_FACES` is the only `REVIEW_REQUIRED` producer in the classification pipeline.
+- **Redundancy advisory**: `EXACT_DUPLICATE` (SHA-256 `duplicate_group`) and
+  `NEAR_DUPLICATE` (pHash distance). These are advisory metadata, never quality states.
+
+**Exact byte duplicate** (user rule): identified by SHA-256 / `duplicate_group`; retains its
+objective quality result (a byte-identical copy of a SUITABLE photo is itself SUITABLE);
+MUST NOT provide more than one readiness credit per exact-duplicate group (same file ×5 can
+never reach READY).
+
+**Near duplicate** (user rule): advisory only — MUST NOT automatically replace a valid
+`SUITABLE` with `REVIEW_REQUIRED`; MUST NOT prevent approval solely because pHash distance is
+small; MUST NOT delete the image. Preferred representation:
+
+```json
+{
+  "quality_status": "SUITABLE",
+  "near_duplicate_advisory": { "distance": 3, "threshold": 8, "photo_id": "<uuid>" }
+}
+```
+
+surfaced in photo summaries as `near_duplicate` (distance/threshold/photo reference) and in
+the readiness response as `near_duplicate_advisory: true` (informational — the UI shows a
+variety recommendation, never a downgrade). Both near-duplicate photos may be approved and
+both may count toward the ≥ 5 hard gate.
+
+## Approval semantics (Phase 5, user-approved)
+
+- `approved` is an **explicit human action only** — never automatic after analysis, never
+  during upload, never driven by detector score (FR-019/FR-023).
+- **Only `quality_status == SUITABLE` may be approved.** Approval attempts on
+  `PENDING`/`UNSUITABLE`/`REVIEW_REQUIRED` → `409 PHOTO_NOT_APPROVABLE` (explicit conflict,
+  never silently ignored). Approve/unapprove are idempotent (repeated calls → 200, no
+  duplicate audit entries).
+- Approval never changes `quality_status` and never enrolls.
+- **Reanalysis edge cases** (user-approved Phase 5 behavior):
+  - A previously approved photo reanalyzed into anything other than `SUITABLE` is
+    **automatically unapproved** (audited `PHOTO_UNAPPROVED`, `reason: quality_degraded`) and
+    readiness recalculates — an unsuitable photo must never remain approved.
+  - If reanalysis fails with `FACE_DETECTOR_UNAVAILABLE`, the existing quality result and
+    approval are **preserved** (no destructive loss of valid prior analysis); the failure is
+    reported and nothing changes until a successful reanalysis replaces the result.
+
 ## Readiness rule
 
 ```text
-suitable_count = count(photos where quality_status == SUITABLE AND approved == true)
+approved_suitable_count = count(photos where quality_status == SUITABLE AND approved == true,
+                                 counting each exact-duplicate_group at most once)
 required_min   = 5   (matches feature 001's T034 gate)
 
 status = DRAFT      if no photos
-       = NOT_READY  if suitable_count < 5
-       = READY      if suitable_count >= 5
+       = NOT_READY  if approved_suitable_count < 5
+       = READY      if approved_suitable_count >= 5
 ```
 
 - `UNSUITABLE`, `REVIEW_REQUIRED`, and unapproved photos never count (spec US4 scenario 3).
-- `READY` never triggers enrollment (FR-022, SC-006). Enrollment is only the explicit
-  "Enroll Approved Photos" action (Phase 6).
+- **Exact duplicates** (byte-identical SHA-256, shared `duplicate_group`) count **once** for
+  the group — the same photo uploaded 5× can never reach READY. Legacy null groups count as
+  unique.
+- Readiness recalculates on upload, approve/unapprove, photo delete, and quality-changing
+  reanalysis; `READINESS_CHANGED` is audited only on an effective `NOT_READY ↔ READY`
+  transition.
+- `READY` never triggers enrollment (FR-022, SC-006) — it means only "a sufficient
+  explicitly approved photo set exists locally". No Frigate call, embedding, identity
+  creation, MQTT publish, or HA action results from reaching READY;
+  `frigate_identity_name` stays NULL and `enrolled_in_frigate` stays false. Enrollment is
+  only the explicit "Enroll Approved Photos" action (Phase 6). READY is never called
+  ENROLLED.
+- A disabled person keeps their readiness state — `enabled` is orthogonal to photo
+  readiness (Phase 6 defines how disabled persons interact with recognition).
 
 ## Detector unavailability policy (explicit, user-approved)
 

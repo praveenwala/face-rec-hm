@@ -63,6 +63,14 @@ class ConflictError(AppError):
     code = ErrorCode.IDENTITY_CONFLICT
 
 
+class PhotoNotApprovableError(ConflictError):
+    """Phase 5: approval attempted on a photo whose quality_status is not SUITABLE.
+    Only SUITABLE photos may be explicitly approved (contract photo-quality.md);
+    PENDING/UNSUITABLE/REVIEW_REQUIRED are refused loudly, never silently ignored."""
+
+    code = ErrorCode.PHOTO_NOT_APPROVABLE
+
+
 class ValidationAppError(AppError):
     status_code = 400
     code = ErrorCode.VALIDATION_ERROR

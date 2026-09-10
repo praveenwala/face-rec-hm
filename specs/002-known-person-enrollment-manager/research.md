@@ -94,14 +94,22 @@ report.
 
 ## 5. Near-duplicate detection (Phase 5)
 
-- **Decision**: Perceptual hashing (`imagehash` pHash, 16×16) stored per photo; photos whose
-  hash distance to an existing photo of the same person is below a conservative threshold are
-  flagged `REVIEW_REQUIRED` with reason `NEAR_DUPLICATE`.
-- **Rationale**: "Obvious duplicates/near-duplicates where practical" (brief). pHash is
-  lightweight, deterministic, and stored as metadata (not image content).
+- **Decision (implemented, advisory-only — user-approved G5 semantics)**: Perceptual
+  hashing (pure-numpy pHash, DCT-based 16×16 → 256 bits) stored per photo. Photos whose hash
+  distance to an existing photo of the same person is ≤ 8 get **advisory metadata only**
+  (`near_duplicate_advisory` in measurements / `near_duplicate` in summaries):
+  `quality_status` stays `SUITABLE`, approval is never blocked, nothing is deleted, and both
+  near-duplicate photos count toward the ≥ 5 readiness gate. Exact duplicates are handled
+  separately and hard-gated by SHA-256 `duplicate_group` (one readiness credit per group).
+- **Rationale**: "Obvious duplicates/near-duplicates where practical" (brief) must not
+  conflate image redundancy with photo quality (user's Phase 5 rule: near visual similarity
+  alone is not a quality failure and must not silently demote a valid SUITABLE photo). pHash
+  is lightweight, deterministic, and stored as metadata (not image content).
 - **Alternatives considered**: Exact byte comparison only (rejected — misses re-encoded or
-  recompressed copies); embedding-based similarity (rejected — would be identity-adjacent
-  inference, which spec FR-013 forbids during quality validation).
+  recompressed copies; retained as the hard-gate `duplicate_group` layer); near-duplicate →
+  REVIEW_REQUIRED (rejected — would block approval/readiness on similarity alone, per the
+  user-approved Phase 5 correction); embedding-based similarity (rejected — would be
+  identity-adjacent inference, which spec FR-013 forbids during quality validation).
 - **Constitution**: II.1 (no identity inference during validation), V.4.
 
 ## 6. HEIC/HEIF handling

@@ -29,7 +29,9 @@ class QualityStatus(str, Enum):
     PENDING = "PENDING"                  # processing in progress
     SUITABLE = "SUITABLE"                # passed all checks (once explicitly approved)
     UNSUITABLE = "UNSUITABLE"            # failed a blocking check
-    REVIEW_REQUIRED = "REVIEW_REQUIRED"  # needs human review (multi-face, near-dup)
+    # Needs human review — genuine quality conditions only (currently multi-face).
+    # Near visual similarity alone NEVER produces this status (advisory-only).
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
 
 
 class RejectionReason(str, Enum):
@@ -43,6 +45,9 @@ class RejectionReason(str, Enum):
     TOO_BLURRY = "TOO_BLURRY"
     UNDEREXPOSED = "UNDEREXPOSED"
     OVEREXPOSED = "OVEREXPOSED"
+    # Legacy/never-emitted: near-duplicate is an ADVISORY, not a rejection — it is
+    # carried in measurements/summaries (near_duplicate_advisory) and never sets
+    # rejection_reason or REVIEW_REQUIRED (user-approved Phase 5 semantics).
     NEAR_DUPLICATE = "NEAR_DUPLICATE"
 
 
@@ -56,7 +61,9 @@ class AuditAction(str, Enum):
     PHOTO_UPLOADED = "PHOTO_UPLOADED"
     PHOTO_DELETED = "PHOTO_DELETED"
     PHOTO_APPROVED = "PHOTO_APPROVED"
-    PHOTO_APPROVAL_REVOKED = "PHOTO_APPROVAL_REVOKED"
+    PHOTO_APPROVAL_REVOKED = "PHOTO_APPROVAL_REVOKED"  # legacy alias (Phase 2 draft); Phase 5 emits PHOTO_UNAPPROVED
+    PHOTO_UNAPPROVED = "PHOTO_UNAPPROVED"
+    READINESS_CHANGED = "READINESS_CHANGED"
     ENROLLMENT_REQUESTED = "ENROLLMENT_REQUESTED"
     ENROLLMENT_COMPLETED = "ENROLLMENT_COMPLETED"
     ENROLLMENT_REMOVED = "ENROLLMENT_REMOVED"
@@ -83,6 +90,7 @@ class ErrorCode(str, Enum):
     PHOTO_NOT_FOUND = "PHOTO_NOT_FOUND"
     FILE_TOO_LARGE = "FILE_TOO_LARGE"  # upload-level error code (per-file rejection result)
     FACE_DETECTOR_UNAVAILABLE = "FACE_DETECTOR_UNAVAILABLE"  # analysis-level (503): no silent fallback
+    PHOTO_NOT_APPROVABLE = "PHOTO_NOT_APPROVABLE"  # Phase 5: approval refused for non-SUITABLE photos
     ENROLLED_PERSON_DELETE_REFUSED = "ENROLLED_PERSON_DELETE_REFUSED"
     NOT_READY = "NOT_READY"
     FEATURE_NOT_ENABLED = "FEATURE_NOT_ENABLED"

@@ -1,8 +1,9 @@
-"""People endpoints (Phase 2 + Phase 3 file cleanup, contracts/rest-api.md).
+"""People endpoints (Phase 2–5, contracts/rest-api.md).
 
 POST  /api/people          — create (never enrolls anything)
 GET   /api/people          — flat summary list; grouping happens in the frontend
 GET   /api/people/{id}     — detail
+GET   /api/people/{id}/readiness — Phase 5 enrollment-readiness payload
 PATCH /api/people/{id}     — display_name / relationship / enabled only
 DELETE /api/people/{id}    — 204, or 409 ENROLLED_PERSON_DELETE_REFUSED when enrolled;
                              removes the person's private photo files (Phase 3)
@@ -53,6 +54,22 @@ def create_person(body: PersonCreate, service: PersonService = Depends(_service)
 def get_person(person_id: str, service: PersonService = Depends(_service)) -> dict:
     person = service.get(parse_uuid(person_id, name="person id"))
     return service.to_detail(person)
+
+
+@router.get("/{person_id}/readiness")
+def get_readiness(
+    person_id: str,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Phase 5 enrollment readiness (contracts/photo-quality.md). READY means the
+    local manager holds >= 5 approved suitable non-duplicate photos — it never
+    implies enrollment (Phase 6 remains blocked)."""
+    from app.services.readiness_service import ReadinessService
+
+    return ReadinessService(session, settings).readiness(
+        parse_uuid(person_id, name="person id")
+    )
 
 
 @router.patch("/{person_id}")

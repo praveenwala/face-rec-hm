@@ -30,14 +30,17 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.exceptions import (
     FaceDetectorUnavailableError,
+    PhotoNotApprovableError,
     PhotoNotFoundError,
     StorageError,
 )
 from app.models.enums import AuditAction, ErrorCode, QualityStatus, RejectionReason
 from app.models.photo import EnrollmentPhoto
 from app.services.audit_service import AuditService
+from app.services.duplicate_service import content_sha256
 from app.services.person_service import PersonService
 from app.services.quality_service import PhotoQualityService
+from app.services.readiness_service import ReadinessService
 from app.services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
@@ -84,6 +87,7 @@ class PhotoService:
         self._storage = StorageService(settings)
         self._audit = AuditService(session)
         self._persons = PersonService(session)
+        self._readiness = ReadinessService(session, settings)
 
     # ---- upload --------------------------------------------------------------
 
@@ -193,6 +197,9 @@ class PhotoService:
             quality_status=QualityStatus.PENDING.value,
             approved=False,
             enrolled_in_frigate=False,
+            # Phase 5: exact-duplicate group = sha256 of the raw bytes. Only ONE
+            # member of a group may count toward readiness (user rule #15).
+            duplicate_group=content_sha256(data),
             measurements={"orientation": orientation} if orientation is not None else {},
         )
         analysis_error: str | None = None
@@ -230,6 +237,9 @@ class PhotoService:
                 },
             )
             self._session.commit()
+            # Phase 5: first upload moves the person DRAFT → NOT_READY (audited only
+            # on an actual transition).
+            self._readiness.sync_person_status(person_id)
         except StorageError:
             self._session.rollback()
             self._storage.delete_photo_files(person_id, stored_filename, photo.id)
@@ -322,6 +332,51 @@ class PhotoService:
             ) from exc
         return data, "image/jpeg"
 
+    # ---- approval --------------------------------------------------------------
+
+    def approve_photo(self, person_id: str, photo_id: str) -> dict:
+        """Explicit human approval (Phase 5). ONLY SUITABLE photos may be approved;
+        PENDING/UNSUITABLE/REVIEW_REQUIRED are refused loudly with PHOTO_NOT_APPROVABLE
+        (409) — never silently ignored (user rule #6). Idempotent: approving an
+        already-approved photo is a clean no-op (no duplicate audit). Approval never
+        changes quality_status and never enrolls."""
+        photo = self._photo_for_person(person_id, photo_id)
+        if photo.quality_status != QualityStatus.SUITABLE.value:
+            raise PhotoNotApprovableError(
+                (
+                    f"Photo {photo_id} has quality_status={photo.quality_status or 'PENDING'}; "
+                    "only SUITABLE photos may be approved (Phase 5)."
+                ),
+                details={"photo_id": photo_id, "quality_status": photo.quality_status},
+            )
+        if not photo.approved:
+            photo.approved = True
+            self._audit.record(
+                AuditAction.PHOTO_APPROVED,
+                entity_type="photo",
+                entity_id=photo.id,
+                details={"person_id": person_id, "quality_status": photo.quality_status},
+            )
+            self._session.commit()
+            self._readiness.sync_person_status(person_id)
+        return self.to_detail(photo)
+
+    def unapprove_photo(self, person_id: str, photo_id: str) -> dict:
+        """Explicit approval revocation (Phase 5). Never touches quality analysis.
+        Idempotent; readiness is recalculated immediately (user rule #7)."""
+        photo = self._photo_for_person(person_id, photo_id)
+        if photo.approved:
+            photo.approved = False
+            self._audit.record(
+                AuditAction.PHOTO_UNAPPROVED,
+                entity_type="photo",
+                entity_id=photo.id,
+                details={"person_id": person_id, "quality_status": photo.quality_status},
+            )
+            self._session.commit()
+            self._readiness.sync_person_status(person_id)
+        return self.to_detail(photo)
+
     # ---- delete ---------------------------------------------------------------
 
     def delete_photo(self, person_id: str, photo_id: str) -> None:
@@ -332,8 +387,16 @@ class PhotoService:
             entity_id=photo.id,
             details={"person_id": person_id},
         )
+        # Rule #23: the representative photo is UI metadata only — deleting it must
+        # safely clear the reference (never used for readiness).
+        person = self._persons.get(person_id)
+        if person.representative_photo_id == photo.id:
+            person.representative_photo_id = None
         self._session.delete(photo)
         self._session.commit()
+        # Phase 5: deleting an approved suitable photo must recalculate readiness
+        # immediately (e.g. READY → NOT_READY, audited on the transition).
+        self._readiness.sync_person_status(person_id)
         # Remove all copies (original/normalized/approved) + thumbnail. Missing files
         # are fine (missing_ok) — deletion still succeeds (US2 scenario 4).
         self._storage.delete_photo_files(person_id, photo.stored_filename, photo.id)
@@ -345,6 +408,16 @@ class PhotoService:
     # ---- response shapes ------------------------------------------------------
 
     def to_summary(self, photo: EnrollmentPhoto) -> dict:
+        # Phase 5 advisory (never a rejection): near-duplicate of another same-person
+        # photo, flagged by perceptual hash — quality_status is untouched, approval
+        # is not blocked (contracts/photo-quality.md, user's Phase 5 rule #16).
+        measurements = photo.measurements or {}
+        advisory = measurements.get("near_duplicate_advisory")
+        near_duplicate = {
+            "distance": advisory["distance"],
+            "threshold": advisory["threshold"],
+            "photo_id": advisory["photo_id"],
+        } if isinstance(advisory, dict) else None
         return {
             "id": photo.id,
             "person_id": photo.person_id,
@@ -357,6 +430,7 @@ class PhotoService:
             "approved": photo.approved,
             "rejection_reason": photo.rejection_reason,
             "enrolled_in_frigate": photo.enrolled_in_frigate,
+            "near_duplicate": near_duplicate,
             "thumbnail_url": f"/api/people/{photo.person_id}/photos/{photo.id}/thumbnail",
             "created_at": photo.created_at.isoformat() if photo.created_at else None,
         }

@@ -205,24 +205,58 @@ validation-report.md Phase 4 section. Phase 5 actionable pending user review.
 **Purpose**: Approval + readiness gate (US4) and near-duplicate detection (US3 bonus), the
 functionality that resolves the 001-T034 media-gate need.
 
-- [ ] T029 [P] [US4] `ReadinessService` + `GET /api/people/{id}/readiness`:
-  `suitable_count = count(SUITABLE AND approved)`, `required_min = 5`,
-  `DRAFT/NOT_READY/READY`, `missing` list, `diversity` review object
-  (`contracts/photo-quality.md`)
-- [ ] T030 [P] [US4] Photo approval: `PATCH /api/people/{id}/photos/{photo_id} {approved}`;
-  approval is explicit, never automatic (FR-019/FR-023); audit `PHOTO_APPROVED` /
-  `PHOTO_APPROVAL_REVOKED`; readiness recomputes
-- [ ] T031 [US3] Near-duplicate detection: perceptual hash (imagehash pHash) vs. same-person
-  photos → `REVIEW_REQUIRED`/`NEAR_DUPLICATE` (research.md #5, Phase 5 only)
-- [ ] T032 [P] [US4] UI: readiness badge ("3 / 5 suitable photos — NOT READY" / "READY FOR
-  ENROLLMENT") + approval toggles; no auto-enroll behavior anywhere (SC-006)
-- [ ] T033 [US4] Tests: <5 suitable → NOT_READY; >=5 → READY; unsuitable/review/unapproved
-  never count; READY never auto-enrolls; privacy tests — uploaded files untracked, `data/`
-  gitignored, deletion removes expected artifacts (spec testing list; SC-007)
+- [x] T029 [P] [US4] `ReadinessService` + `GET /api/people/{id}/readiness`:
+  `approved_suitable_count = count(SUITABLE AND approved, exact-duplicate groups counted
+  once)`, `required_min = 5`, `DRAFT/NOT_READY/READY`, `missing` list, `diversity` review
+  object (`contracts/photo-quality.md`) — **DONE 2026-09-10**: `app/services/readiness_service.py`;
+  response per the approved Phase 5 shape (`person_id`, `status`, `minimum_required`,
+  `approved_suitable_count`, `remaining_required`, `total_uploaded`, `suitable_count`,
+  `approved_count`, `review_required_count`, `unsuitable_count`, `enrollment_enabled:
+  false`, `missing`, `diversity`); no private paths; person summaries reuse the deduped count
+- [x] T030 [P] [US4] Photo approval: `POST /api/people/{id}/photos/{photo_id}/approve` /
+  `.../unapprove`; approval is explicit, never automatic (FR-019/FR-023); only
+  `SUITABLE` may be approved, anything else → `409 PHOTO_NOT_APPROVABLE`; approve/unapprove
+  idempotent; audit `PHOTO_APPROVED` / `PHOTO_UNAPPROVED`; readiness recomputes — **DONE**:
+  `PhotoService.approve/unapprove` + endpoints; `approved` is metadata only (never touches
+  quality analysis); reanalysis that degrades a previously approved photo auto-clears
+  approval (audited `PHOTO_UNAPPROVED`), detector-failure during reanalysis preserves the
+  prior result and approval
+- [x] T031 [US3] Duplicate handling: exact SHA-256 `duplicate_group` assigned at upload;
+  only one member of an exact-duplicate group counts toward readiness (byte-identical ×5
+  can never reach READY); near-duplicate detection via perceptual hash (pHash, Hamming
+  distance ≤ 8) is **advisory only** — it never changes `quality_status` (a near-duplicate
+  stays SUITABLE), never blocks approval, never auto-deletes, never identity similarity
+  (research.md #5, Phase 5; user's G5 near-duplicate semantics) — **DONE**:
+  `app/services/duplicate_service.py` + quality-service pHash advisory
+  (`near_duplicate_advisory` in measurements, `near_duplicate` in photo summaries,
+  `near_duplicate_advisory` flag in readiness response); both near-duplicate photos may be
+  approved and both count toward the ≥ 5 gate
+- [x] T032 [P] [US4] UI: readiness card ("3 / 5 approved suitable photos — NOT READY" /
+  "READY FOR ENROLLMENT") + explicit Approve/Unapprove actions on SUITABLE photos only;
+  contextual disabled enrollment control (NOT_READY: "Enrollment unavailable — at least 5
+  approved suitable photos required"; READY: "Ready for enrollment — enrollment is not
+  enabled in this phase"); no auto-enroll behavior anywhere (SC-006); people cards show
+  photo count + approved-suitable count + readiness status (never "Enrolled") — **DONE**:
+  `PersonDetailPage.tsx`, `PhotoGrid.tsx`, `PeoplePage.tsx`, `App.tsx`
+- [x] T033 [US4] Tests — **DONE**: `test_readiness.py` (17 tests): approval rules
+  (SUITABLE yes; PENDING/UNSUITABLE/REVIEW_REQUIRED → PHOTO_NOT_APPROVABLE; idempotent;
+  cross-person blocked; quality_status never changed by approval), readiness cases
+  (0/1/4 → NOT_READY, 5/6+ → READY, 5 suitable but 4 approved → NOT_READY, unsuitable and
+  review-required never count, delete/unapprove recalculate, re-approving fifth → READY),
+  exact-duplicate inflation blocked, degrading reanalysis clears approval + recalculates,
+  detector-failure during reanalysis preserves prior state/approval, READY transition makes
+  zero Frigate/embedding/MQTT/HA calls with `frigate_identity_name` NULL and
+  `enrolled_in_frigate` false; privacy tests — uploaded files untracked, `data/`
+  gitignored, deletion removes expected artifacts (SC-007); all fixtures synthetic/
+  public-domain (astronaut.png derived variants)
 
-**Checkpoint (Gate G5)**: Readiness gate matches the 001-T034 requirement (>= 5 suitable
-approved photos); nothing auto-enrolls. This is the evidence the user may use to decide
-feature 001's T034 disposition.
+**Checkpoint (Gate G5) — PASS 2026-09-10**: Readiness gate matches the 001-T034 requirement
+(≥ 5 distinct approved suitable photos); exact duplicates cannot inflate readiness;
+near-duplicates are advisory only (stay SUITABLE, approvable, count toward the gate — never
+REVIEW_REQUIRED solely for similarity); READY never auto-enrolls (zero
+Frigate/embedding/MQTT/HA calls verified by test). `pytest` → **116 passed**; 001 harness
+`run_harness.sh all` → **OVERALL PASS** unchanged. This is the evidence the user may use to
+decide feature 001's T034 disposition. Nothing committed/pushed pending user review.
 
 ---
 

@@ -287,6 +287,45 @@ button.danger { color: #e08787; border-color: #a44; }
   font-size: 1rem;
 }
 
+/* readiness card (Phase 5) */
+.readiness-card {
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.readiness-ready {
+  border-color: #6ccb6c;
+  background: rgba(108, 203, 108, 0.07);
+}
+
+.readiness-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.readiness-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.readiness-count {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.readiness-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #aaa;
+}
+
 /* upload dropzone */
 .upload-section { margin-bottom: 1rem; }
 

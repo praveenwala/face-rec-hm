@@ -72,12 +72,12 @@ touched only by explicit enrollment/removal actions (Phase 6).
 | `sharpness` | float \| null | Laplacian variance over the face crop |
 | `brightness` | float \| null | Mean luminance (0–255) over the face crop |
 | `quality_status` | enum: `PENDING \| SUITABLE \| UNSUITABLE \| REVIEW_REQUIRED` | Computed at upload; `PENDING` only during processing |
-| `rejection_reason` | enum \| null | `NO_FACE \| MULTIPLE_FACES \| FACE_TOO_SMALL \| TOO_BLURRY \| UNDEREXPOSED \| OVEREXPOSED \| MEDIA_DECODE_FAILURE \| UNSUPPORTED_FORMAT \| NEAR_DUPLICATE` |
+| `rejection_reason` | enum \| null | `NO_FACE \| MULTIPLE_FACES \| FACE_TOO_SMALL \| TOO_BLURRY \| UNDEREXPOSED \| OVEREXPOSED \| MEDIA_DECODE_FAILURE \| UNSUPPORTED_FORMAT` — never a redundancy advisory (`NEAR_DUPLICATE` is advisory metadata, not a rejection) |
 | `rejection_details` | JSON \| null | Supplementary measurement values + any secondary reason codes (never image content) |
 | `measurements` | JSON \| null | Full objective measurement record (dims, ratios, Laplacian, luminance, pHash) — kept separate from derived status |
-| `approved` | boolean, default `false` | Explicit user approval (spec FR-019); approving is never automatic |
+| `approved` | boolean, default `false` | Explicit user approval (spec FR-019); approving is never automatic; only `SUITABLE` photos may be approved; reanalysis that degrades an approved photo auto-clears it |
 | `enrolled_in_frigate` | boolean, default `false` | Set true by Phase 6 enrollment for each submitted photo |
-| `duplicate_group` | string \| null | Perceptual-hash bucket (Phase 5 near-duplicate detection) |
+| `duplicate_group` | string \| null | Exact-duplicate bucket: SHA-256 of the stored original file, assigned at upload. Only one member of a group counts toward readiness. Legacy null rows each count as unique |
 | `created_at` | datetime | |
 
 **Storage layout** (per person UUID, under `enrollment-app/data/people/`):
@@ -105,7 +105,7 @@ people/<person-uuid>/
 |---|---|---|
 | `id` | int | Auto-increment PK |
 | `timestamp` | datetime | UTC |
-| `action` | enum | `PERSON_CREATED \| PERSON_UPDATED \| RELATIONSHIP_CHANGED \| PERSON_DISABLED \| PERSON_ENABLED \| PERSON_DELETED \| PHOTO_UPLOADED \| PHOTO_DELETED \| PHOTO_APPROVED \| PHOTO_APPROVAL_REVOKED \| ENROLLMENT_REQUESTED \| ENROLLMENT_COMPLETED \| ENROLLMENT_REMOVED \| ENROLLMENT_FAILED \| RECONCILIATION_RUN` |
+| `action` | enum | `PERSON_CREATED \| PERSON_UPDATED \| RELATIONSHIP_CHANGED \| PERSON_DISABLED \| PERSON_ENABLED \| PERSON_DELETED \| PHOTO_UPLOADED \| PHOTO_DELETED \| PHOTO_APPROVED \| PHOTO_UNAPPROVED \| READINESS_CHANGED \| ENROLLMENT_REQUESTED \| ENROLLMENT_COMPLETED \| ENROLLMENT_REMOVED \| ENROLLMENT_FAILED \| RECONCILIATION_RUN` |
 | `entity_type` | string \| null | Subject kind: `person` \| `photo` \| `system` (user-approved implementation instruction — replaces person_id/photo_id with a general subject reference) |
 | `entity_id` | string \| null | UUID of the subject entity |
 | `details` | JSON \| null | Structured context (e.g. old/new relationship values, reason codes). Never image bytes; never secrets (spec FR-031) |
@@ -127,13 +127,25 @@ upload received
         ├─> face_count > 1               → REVIEW_REQUIRED (MULTIPLE_FACES)
         ├─> face too small               → UNSUITABLE  (FACE_TOO_SMALL)
         ├─> too blurry / under/overexposed → UNSUITABLE (TOO_BLURRY | UNDEREXPOSED | OVEREXPOSED)
-        ├─> near-duplicate of existing   → REVIEW_REQUIRED (NEAR_DUPLICATE)   [Phase 5]
+        ├─> near-duplicate of existing   → ADVISORY ONLY: stays SUITABLE, records
+        │                                  near_duplicate_advisory metadata [Phase 5]
         └─> all checks pass              → SUITABLE
 ```
 
 `REVIEW_REQUIRED` photos are shown to the user with the reason; the user may delete them or
 provide a cleaner image. In the MVP there is no path to force-approve a multi-face photo
 (face cropping is a documented future feature).
+
+**Phase 5 duplicate semantics** (user-approved Phase 5 rules; `contracts/photo-quality.md`):
+
+- **Exact duplicates** (byte-identical SHA-256) share a `duplicate_group`; only one member of
+  an exact-duplicate group may contribute a readiness credit. Uploading the same photo five
+  times can never produce READY.
+- **Near-duplicates** (perceptual hash, Hamming distance ≤ 8) are **advisory only**: the
+  photo stays `SUITABLE` and records `near_duplicate_advisory` (distance/threshold/photo
+  reference) in `measurements`; it is never downgraded to `REVIEW_REQUIRED`, never blocked
+  from approval, and nothing is deleted. Near-duplicate detection is about image redundancy,
+  never face identity.
 
 ## Enrollment status transitions (Person.enrollment_status)
 
@@ -161,19 +173,28 @@ ENROLLED ──explicit removal──▶ NOT_READY (or READY if still ≥ 5 suit
 ## Readiness calculation
 
 ```text
-suitable_count = count(photos where quality_status == SUITABLE AND approved == true)
+approved_suitable_count = count(photos where quality_status == SUITABLE AND approved == true,
+                                 counting each exact-duplicate_group at most once)
 required_min   = 5   (configuration constant; matches feature 001's T034 gate)
 
-status = DRAFT      if suitable_count == 0 AND photo_count == 0
-       = NOT_READY  if suitable_count < required_min
-       = READY      if suitable_count >= required_min
+status = DRAFT      if approved_suitable_count == 0 AND photo_count == 0
+       = NOT_READY  if approved_suitable_count < required_min
+       = READY      if approved_suitable_count >= required_min
 ```
 
-Readiness response includes: `suitable_count`, `required_min`, `status`, `missing` (e.g.
-"more suitable photos", "angle/expression diversity" when the user has flagged it), and a
-`diversity` review object (`{ has_multiple_angles: bool | null, has_expression_variation:
-bool | null, notes }`) — diversity is review metadata, not a blocking criterion in the MVP
-(spec US4).
+Readiness is recomputed (and `READINESS_CHANGED` audited only on an effective
+NOT_READY ↔ READY transition) whenever photos are uploaded, approved, unapproved, deleted,
+or reanalyzed into a different quality state. `READY` means "a sufficient explicitly
+approved photo set exists locally" — it never triggers enrollment (FR-022, SC-006): no
+Frigate calls, no embeddings, `frigate_identity_name` stays NULL, `enrolled_in_frigate`
+stays false. A disabled person keeps their readiness state (enabled/disabled is orthogonal).
+
+Readiness response includes: `approved_suitable_count`, `minimum_required`, `status`,
+`remaining_required`, `total_uploaded`, `suitable_count`, `approved_count`,
+`review_required_count`, `unsuitable_count`, `enrollment_enabled: false`, `missing` (e.g.
+"more suitable photos", "angle/expression diversity"), and a `diversity` review object
+(`{ has_multiple_angles: bool | null, has_expression_variation: bool | null, notes }`) —
+diversity is review metadata, not a blocking criterion in the MVP (spec US4).
 
 ## Entity relationship summary
 

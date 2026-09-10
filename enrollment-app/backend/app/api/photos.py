@@ -1,17 +1,21 @@
-"""Photo endpoints (Phase 3–4, contracts/rest-api.md).
+"""Photo endpoints (Phase 3–5, contracts/rest-api.md).
 
 POST   /api/people/{id}/photos                       — multi-file upload (per-file results)
 GET    /api/people/{id}/photos                       — metadata list (no bytes, no paths)
 GET    /api/people/{id}/photos/{photo_id}            — metadata detail
 POST   /api/people/{id}/photos/{photo_id}/analyze    — explicit re-analysis (Phase 4)
+POST   /api/people/{id}/photos/{photo_id}/approve    — explicit approval, SUITABLE only (Phase 5)
+POST   /api/people/{id}/photos/{photo_id}/unapprove  — approval revocation (Phase 5)
 GET    /api/people/{id}/photos/{photo_id}/file?kind=original|normalized — image bytes
 GET    /api/people/{id}/photos/{photo_id}/thumbnail  — small preview (max ~300px)
 DELETE /api/people/{id}/photos/{photo_id}            — 204; row + original/normalized/approved + thumb
 
 Phase 4: analysis is automatic on upload (per-file quality_status + measurements);
 re-analysis is an explicit action. Detector unavailable → 503
-FACE_DETECTOR_UNAVAILABLE (no silent fallback). Approval is Phase 5;
-enrollment is Phase 6 (501 stubs). `kind=normalized` is not produced in this
+FACE_DETECTOR_UNAVAILABLE (no silent fallback). Phase 5: approval is an explicit
+human action — only SUITABLE photos can be approved (409 PHOTO_NOT_APPROVABLE
+otherwise); approving never changes quality or enrolls; readiness recalculates.
+Enrollment is Phase 6 (501 stubs). `kind=normalized` is not produced in this
 phase (HEIC normalization deferred) and returns an explicit 404.
 """
 
@@ -81,6 +85,31 @@ def analyze_photo(
     service.get_photo(pid, phid)  # ownership check → 404 (incl. cross-person)
     PhotoQualityService(session, settings).analyze_photo(pid, phid)
     return service.get_photo(pid, phid)
+
+
+@router.post("/{person_id}/photos/{photo_id}/approve")
+def approve_photo(
+    person_id: str,
+    photo_id: str,
+    service: PhotoService = Depends(_service),
+) -> dict:
+    """Explicit approval (Phase 5). Only SUITABLE photos may be approved; anything
+    else → 409 PHOTO_NOT_APPROVABLE. Never auto-approves, never enrolls."""
+    pid = parse_uuid(person_id, name="person id")
+    phid = parse_uuid(photo_id, name="photo id")
+    return service.approve_photo(pid, phid)
+
+
+@router.post("/{person_id}/photos/{photo_id}/unapprove")
+def unapprove_photo(
+    person_id: str,
+    photo_id: str,
+    service: PhotoService = Depends(_service),
+) -> dict:
+    """Explicit approval revocation (Phase 5). Never affects quality analysis."""
+    pid = parse_uuid(person_id, name="person id")
+    phid = parse_uuid(photo_id, name="photo id")
+    return service.unapprove_photo(pid, phid)
 
 
 @router.get("/{person_id}/photos/{photo_id}/file")

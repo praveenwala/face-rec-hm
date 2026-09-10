@@ -37,7 +37,8 @@ function HealthBadge({ state }: { state: HealthState }) {
 }
 
 // Visibly disabled control — Frigate enrollment is NOT enabled in this phase
-// (spec FR-030; the API returns 501 FEATURE_NOT_ENABLED).
+// (spec FR-030; the API returns 501 FEATURE_NOT_ENABLED). Clicking it must never
+// call the 501 route — it is inert by design (user's Phase 5 rule #21).
 function DisabledEnrollmentControl() {
   return (
     <button type="button" disabled title="Frigate enrollment is not enabled in this phase">
@@ -77,8 +78,9 @@ export default function App() {
         <section className="placeholder" aria-label="Enrollment status">
           <h2>Enrollment</h2>
           <p>
-            Quality checks, approval, and readiness arrive in Phases 4–5; Frigate enrollment is
-            Phase 6 and stays disabled until then.
+            Quality analysis (Phase 4), explicit approval, and the readiness gate (Phase 5) are
+            live; Frigate enrollment is Phase 6 and stays disabled until then. READY is not
+            ENROLLED — reaching READY never triggers any biometric action.
           </p>
           <DisabledEnrollmentControl />
         </section>

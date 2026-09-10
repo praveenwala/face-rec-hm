@@ -77,6 +77,7 @@ export interface PhotoSummary {
   approved: boolean
   rejection_reason: string | null
   enrolled_in_frigate: boolean
+  near_duplicate: { distance: number; threshold: number; photo_id: string } | null
   thumbnail_url: string
   created_at: string | null
 }
@@ -89,6 +90,25 @@ export interface PhotoDetail extends PhotoSummary {
   measurements: Record<string, unknown> | null
   rejection_details: Record<string, unknown> | null
   duplicate_group: string | null
+}
+
+export interface Readiness {
+  person_id: string
+  status: string // DRAFT | NOT_READY | READY
+  minimum_required: number
+  required_min: number
+  approved_suitable_count: number
+  suitable_count: number
+  remaining_required: number
+  total_uploaded: number
+  approved_count: number
+  review_required_count: number
+  unsuitable_count: number
+  pending_count: number
+  enrollment_enabled: boolean
+  near_duplicate_advisory: boolean
+  missing: string[]
+  diversity: Record<string, unknown>
 }
 
 export interface UploadResult {
@@ -176,6 +196,19 @@ export const api = {
     request<PhotoDetail>(`/api/people/${personId}/photos/${photoId}/analyze`, {
       method: 'POST',
     }),
+
+  approvePhoto: (personId: string, photoId: string) =>
+    request<PhotoDetail>(`/api/people/${personId}/photos/${photoId}/approve`, {
+      method: 'POST',
+    }),
+
+  unapprovePhoto: (personId: string, photoId: string) =>
+    request<PhotoDetail>(`/api/people/${personId}/photos/${photoId}/unapprove`, {
+      method: 'POST',
+    }),
+
+  getReadiness: (personId: string) =>
+    request<Readiness>(`/api/people/${personId}/readiness`),
 
 
   audit: (personId?: string) => {

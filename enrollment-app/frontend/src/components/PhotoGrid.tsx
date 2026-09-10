@@ -6,6 +6,7 @@ interface PhotoGridProps {
   personId: string
   photos: PhotoSummary[]
   onDeleted: (photoId: string) => void
+  onApprovalChanged: () => void
 }
 
 function formatBytes(n: number): string {
@@ -55,13 +56,15 @@ function statusLabel(status: string): string {
   }
 }
 
-// Phase 4 photo grid: thumbnails + real quality results. SUITABLE here never means
-// approved — approval is an explicit Phase 5 action. Multi-face photos explain that
-// a single-person image is required; there is no automatic face picking (FR-017).
-export default function PhotoGrid({ personId, photos, onDeleted }: PhotoGridProps) {
+// Phase 4–5 photo grid: thumbnails + real quality results + explicit approval.
+// SUITABLE photos can be APPROVED (human action only — never automatic);
+// UNSUITABLE/REVIEW_REQUIRED/PENDING show no approval control (Phase 5 rule #19).
+// Multi-face photos explain that a single-person image is required (FR-017).
+export default function PhotoGrid({ personId, photos, onDeleted, onApprovalChanged }: PhotoGridProps) {
   const [confirming, setConfirming] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [analyzing, setAnalyzing] = useState<string | null>(null)
+  const [approving, setApproving] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Record<string, PhotoDetail | 'loading'>>({})
 
   const remove = async (photo: PhotoSummary) => {
@@ -86,6 +89,23 @@ export default function PhotoGrid({ personId, photos, onDeleted }: PhotoGridProp
       setError(err instanceof ApiError ? err.message : String(err))
     } finally {
       setAnalyzing(null)
+    }
+  }
+
+  const setApproval = async (photo: PhotoSummary, approved: boolean) => {
+    setApproving(photo.id)
+    setError(null)
+    try {
+      if (approved) {
+        await api.approvePhoto(personId, photo.id)
+      } else {
+        await api.unapprovePhoto(personId, photo.id)
+      }
+      onApprovalChanged()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+    } finally {
+      setApproving(null)
     }
   }
 
@@ -144,6 +164,9 @@ export default function PhotoGrid({ personId, photos, onDeleted }: PhotoGridProp
                   {statusLabel(p.quality_status)}
                   {p.approved ? ' · approved' : ''}
                 </span>
+                {p.approved && (
+                  <span className="badge badge-ok">✓ Approved</span>
+                )}
                 {reason && (
                   <span className="photo-reason" title={p.rejection_reason ?? undefined}>
                     {reason}
@@ -152,6 +175,12 @@ export default function PhotoGrid({ personId, photos, onDeleted }: PhotoGridProp
                 {isMultiFace && (
                   <span className="photo-hint">
                     For enrollment, use an image containing only the intended person.
+                  </span>
+                )}
+                {p.quality_status === 'SUITABLE' && p.near_duplicate && (
+                  <span className="photo-hint">
+                    ⚠ Advisory: visually similar to another uploaded photo — more
+                    pose/angle variety is recommended.
                   </span>
                 )}
               </div>
@@ -201,6 +230,26 @@ export default function PhotoGrid({ personId, photos, onDeleted }: PhotoGridProp
                 <button type="button" onClick={() => void reanalyze(p)} disabled={analyzing === p.id}>
                   {analyzing === p.id ? 'Analyzing…' : 'Re-analyze'}
                 </button>
+                {p.quality_status === 'SUITABLE' && (
+                  p.approved ? (
+                    <button
+                      type="button"
+                      onClick={() => void setApproval(p, false)}
+                      disabled={approving === p.id}
+                    >
+                      {approving === p.id ? '…' : 'Unapprove'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => void setApproval(p, true)}
+                      disabled={approving === p.id}
+                    >
+                      {approving === p.id ? '…' : 'Approve'}
+                    </button>
+                  )
+                )}
               </div>
 
               {confirming === p.id ? (

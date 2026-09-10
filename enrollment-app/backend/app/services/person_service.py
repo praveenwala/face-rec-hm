@@ -18,16 +18,20 @@ from sqlalchemy.orm import Session
 
 from app.exceptions import ConflictError, PersonNotFoundError
 from app.models.audit import AuditLogEntry
-from app.models.enums import AuditAction, EnrollmentStatus, ErrorCode, QualityStatus
+from app.models.enums import AuditAction, EnrollmentStatus, ErrorCode
 from app.models.person import Person
 from app.models.photo import EnrollmentPhoto
 from app.services.audit_service import AuditService
+from app.services.readiness_service import ReadinessService
 
 
 class PersonService:
     def __init__(self, session: Session) -> None:
         self._session = session
         self._audit = AuditService(session)
+        # counts() needs only the session; status/sync paths are owned by the
+        # readiness endpoint and photo mutations (which inject settings).
+        self._readiness = ReadinessService(session)
 
     # ---- reads -----------------------------------------------------------
 
@@ -143,18 +147,10 @@ class PersonService:
     # ---- response shapes ---------------------------------------------------
 
     def _counts(self, person_id: str) -> tuple[int, int]:
-        rows = (
-            self._session.query(EnrollmentPhoto)
-            .filter(EnrollmentPhoto.person_id == person_id)
-            .all()
-        )
-        photo_count = len(rows)
-        suitable_count = sum(
-            1
-            for r in rows
-            if r.quality_status == QualityStatus.SUITABLE.value and r.approved
-        )
-        return photo_count, suitable_count
+        # Phase 5: person summaries show the SAME deduped approved-suitable count
+        # the readiness gate uses (one credit per exact-duplicate group).
+        counts = self._readiness.counts(person_id)
+        return counts.total_uploaded, counts.approved_suitable_count
 
     def to_summary(self, person: Person) -> dict:
         photo_count, suitable_count = self._counts(person.id)
