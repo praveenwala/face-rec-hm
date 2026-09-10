@@ -69,3 +69,15 @@ ring-mqtt/config.json
 
 # Local tooling
 *.log
+
+# Feature 002 — known person enrollment manager (constitution II.4/II.5)
+# Private runtime storage: app.db + all uploaded biometric photo bytes live under
+# enrollment-app/data/ and must NEVER be committed. Defense-in-depth: the global
+# image-extension and *.db patterns above also cover this path.
+enrollment-app/data/
+enrollment-app/backend/.venv/
+enrollment-app/frontend/node_modules/
+enrollment-app/frontend/dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/

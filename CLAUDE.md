@@ -58,11 +58,25 @@ plan retention/cleanup for unknown-face crops (constitution II.5; recorded in
 validation-report.md and production-deployment.md). Next: T034 (enroll first Known
 Identity), pending explicit approval.
 
-This repo has no application source code yet — only configuration (Docker Compose,
-Frigate, Mosquitto), scripts (`scripts/loop-test-video.sh`), and documentation. Identity/
-relationship/notification logic, once implemented (T043+), will be Home Assistant
-automations/Jinja2 templates, not custom application code (per the plan's Technical
-Context).
+**Feature `002-known-person-enrollment-manager` (approved 2026-09-10):** a localhost-only
+web application (`enrollment-app/` — FastAPI + SQLite backend, React/Vite frontend, native
+Mac venv; NEVER the Pi) is the management surface for the known-person library: create
+people with user-supplied relationships, upload/validate/approve enrollment photos
+(Frigate-aligned YuNet quality checks, Phases 3–4), and an enrollment-readiness gate
+(>= 5 suitable approved photos, Phase 5). Phases 1–5 are authorized; **Phase 6 (Frigate
+enrollment) is BLOCKED pending explicit approval** and Phase 7 (HA) is not implemented —
+enrollment routes return `501 FEATURE_NOT_ENABLED` and the UI shows a disabled
+"Enrollment not enabled in this phase" control. All biometric data lives under
+`enrollment-app/data/` (gitignored). Feature 001's T034 stays NOT STARTED; this app's
+validated readiness is the preferred future gate. Run: `enrollment-app/backend/run.sh`
+(127.0.0.1:8000) + `cd enrollment-app/frontend && npm run dev` (127.0.0.1:5173); tests:
+`enrollment-app/backend` venv → `python -m pytest app/tests`.
+
+Except for that enrollment app, this repo has no other application source code — only
+configuration (Docker Compose, Frigate, Mosquitto), scripts (`scripts/loop-test-video.sh`),
+and documentation. Identity/relationship/notification logic, once implemented (001-T043+),
+will be Home Assistant automations/Jinja2 templates, not custom application code (per the
+plan's Technical Context).
 
 ## Local Test Documentation Gate
 

@@ -1,0 +1,1 @@
+"""Phase 1–5 pytest suite for the enrollment manager."""
