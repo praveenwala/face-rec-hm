@@ -56,6 +56,12 @@ during quality validation).
 | `MEDIA_DECODE_FAILURE` | File could not be decoded (corrupt/truncated/unknown) | step 4 |
 | `UNSUPPORTED_FORMAT` | Recognized format the local stack cannot decode (incl. unnormalizable HEIC) | steps 3–4 |
 | `NEAR_DUPLICATE` | Perceptual hash too close to an existing photo of the same person | step 12 (Phase 5) |
+| `FILE_TOO_LARGE` | Ingestion-level: upload exceeds `MAX_UPLOAD_BYTES` — rejected before any decode | step 1 |
+| `STORAGE_FAILURE` | Ingestion-level: could not write the file to private storage | steps 4–6 (write path) |
+
+`FILE_TOO_LARGE` and `STORAGE_FAILURE` are ingestion-level per-file results (Phase 3), not
+quality classifications — they never imply anything about the image content. A rejected
+file is never stored and gets no DB row.
 
 `MEDIA_DECODE_FAILURE`/`UNSUPPORTED_FORMAT` are **never** collapsed into `NO_FACE` (spec
 FR-016; feature 001's §10 media policy makes the same distinction). A photo carries one canonical
@@ -124,9 +130,12 @@ status = DRAFT      if no photos
 
 ## Media support statement
 
-- Supported for enrollment (canonical): **JPEG, PNG**. Accepted as upload candidates (any the
-  installed image stack decodes): JPEG, PNG, WEBP, BMP, GIF, TIFF, and others Pillow handles.
-- HEIC/HEIF: detected by content; normalized to JPEG via ffmpeg when available (into
-  `normalized/`); the original file is never modified (FR-011/FR-018).
+- Application upload allowlist (Phase 3, user-approved): **exactly JPEG, PNG, WEBP** —
+  decided by decoded/sniffed content (magic bytes + decode), never by filename extension.
+  Valid images outside the allowlist (BMP, GIF, TIFF, and other Pillow-decodable formats)
+  are rejected with `UNSUPPORTED_FORMAT` for the predictable enrollment-media workflow.
+- HEIC/HEIF: detected by content and rejected with `UNSUPPORTED_FORMAT`; normalization to
+  JPEG is deferred pending explicit approval (no silent normalization). The original file is
+  never modified (FR-011/FR-018).
 - No universal format support is claimed — decode success is the test, exactly as in feature
   001's media policy (local-mac-testing.md §10).

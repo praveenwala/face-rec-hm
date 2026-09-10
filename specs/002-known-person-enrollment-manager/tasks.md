@@ -127,18 +127,18 @@ audit entries present; 001 harness OVERALL PASS unchanged; nothing committed/pus
 
 **Purpose**: Multi-file upload, private storage, thumbnails, photo delete (US2).
 
-- [ ] T016 [US2] Upload endpoint `POST /api/people/{id}/photos` (multipart, multi-file):
+- [x] T016 [US2] Upload endpoint `POST /api/people/{id}/photos` (multipart, multi-file):
   size check (20 MB default), content sniff, store original untouched (FR-010/FR-011);
   returns one result object per file (contracts/rest-api.md)
-- [ ] T017 [P] [US2] Photo metadata extraction (Pillow): dimensions, mime by content, EXIF
+- [x] T017 [P] [US2] Photo metadata extraction (Pillow): dimensions, mime by content, EXIF
   orientation recorded (`app/services/photo_service.py`; `data-model.md` EnrollmentPhoto)
-- [ ] T018 [P] [US2] File + thumbnail endpoints (`.../file?kind=original|normalized`,
+- [x] T018 [P] [US2] File + thumbnail endpoints (`.../file?kind=original|normalized`,
   `.../thumbnail`, max ~300px) — loopback only
-- [ ] T019 [US2] Photo delete: DB row + `original/` + `normalized/` files removed (US2
+- [x] T019 [US2] Photo delete: DB row + `original/` + `normalized/` files removed (US2
   scenario 4); audit `PHOTO_DELETED`
-- [ ] T020 [US2] UI: drag-and-drop multi-upload dropzone, per-photo result list, thumbnails,
+- [x] T020 [US2] UI: drag-and-drop multi-upload dropzone, per-photo result list, thumbnails,
   delete (`src/components/UploadDropzone.tsx`, `PhotoGrid.tsx`)
-- [ ] T021 [US2] Tests: valid multi-upload (all stored + listed), delete photo (row + files
+- [x] T021 [US2] Tests: valid multi-upload (all stored + listed), delete photo (row + files
   gone)
 
 **Checkpoint (Gate G3)**: Photos upload, list, thumbnail, and delete end-to-end; originals
@@ -153,8 +153,9 @@ never altered.
 
 - [ ] T022 [P] [US3] `FaceDetector` (`app/services/face_detector.py`): load Frigate's
   `facedet.onnx` (YuNet via OpenCV FaceDetectorYN; host path verified — expected
-  `frigate/config/model_cache/facedet/facedet.onnx`, gitignored); documented Haar fallback if
-  the model file is absent (research.md #3, constitution IV.2)
+  `frigate/config/model_cache/facedet/facedet.onnx`, gitignored); **no silent Haar fallback**
+  (user-approved Phase 4 decision): missing/unloadable model → analysis fails cleanly with
+  `FACE_DETECTOR_UNAVAILABLE`, readiness semantics never silently change detector
 - [ ] T023 [P] [US3] Face size + count checks: `face_count`, `face_size_ratio` (area +
   per-axis); `face_count == 0` → `NO_FACE`; `face_count > 1` →
   `REVIEW_REQUIRED`/`MULTIPLE_FACES` (FR-016/FR-017)
@@ -162,7 +163,9 @@ never altered.
   checks → `TOO_BLURRY`/`UNDEREXPOSED`/`OVEREXPOSED` (FR-012/FR-014); thresholds in
   `QualityConfig` (initial, un-tuned — documented stance)
 - [ ] T025 [P] [US3] HEIC/HEIF normalization via ffmpeg → JPEG into `normalized/`; original
-  untouched; conversion failure → `UNSUPPORTED_FORMAT` (FR-018, research.md #6)
+  untouched; conversion failure → `UNSUPPORTED_FORMAT` (FR-018, research.md #6) — ⛔
+  **DEFERRED** pending explicit approval (no silent normalization; HEIC stays
+  `UNSUPPORTED_FORMAT`)
 - [ ] T026 [US3] `QualityService` pipeline (`app/services/quality_service.py`) wired into
   upload: per-photo `quality_status` + `rejection_reason` + measurements/rejection_details
   (FR-015/FR-016; objective vs. heuristic split)

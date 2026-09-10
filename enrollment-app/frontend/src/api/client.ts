@@ -65,6 +65,37 @@ export interface PersonDetail extends PersonSummary {
   updated_at: string | null
 }
 
+export interface PhotoSummary {
+  id: string
+  person_id: string
+  original_filename: string
+  mime_type: string
+  width: number | null
+  height: number | null
+  file_size: number
+  quality_status: string
+  approved: boolean
+  rejection_reason: string | null
+  enrolled_in_frigate: boolean
+  thumbnail_url: string
+  created_at: string | null
+}
+
+export interface PhotoDetail extends PhotoSummary {
+  measurements: Record<string, unknown> | null
+  rejection_details: Record<string, unknown> | null
+  duplicate_group: string | null
+}
+
+export interface UploadResult {
+  photo_id: string | null
+  original_filename: string
+  quality_status: string | null
+  rejection_reason: string | null
+  measurements: Record<string, unknown> | null
+  approved: boolean
+}
+
 export interface AuditEntry {
   id: number
   timestamp: string
@@ -98,6 +129,8 @@ export const api = {
   listPeople: () =>
     request<{ people: PersonSummary[] }>('/api/people').then((r) => r.people),
 
+  getPerson: (id: string) => request<PersonDetail>(`/api/people/${id}`),
+
   createPerson: (input: CreatePersonInput) =>
     request<PersonDetail>('/api/people', {
       method: 'POST',
@@ -114,6 +147,26 @@ export const api = {
 
   deletePerson: (id: string) =>
     request<void>(`/api/people/${id}`, { method: 'DELETE' }),
+
+  listPhotos: (personId: string) =>
+    request<{ photos: PhotoSummary[] }>(`/api/people/${personId}/photos`).then(
+      (r) => r.photos,
+    ),
+
+  uploadPhotos: (personId: string, files: File[]) => {
+    const form = new FormData()
+    files.forEach((f) => form.append('files', f, f.name))
+    return request<{ results: UploadResult[] }>(`/api/people/${personId}/photos`, {
+      method: 'POST',
+      body: form,
+    }).then((r) => r.results)
+  },
+
+  getPhoto: (personId: string, photoId: string) =>
+    request<PhotoDetail>(`/api/people/${personId}/photos/${photoId}`),
+
+  deletePhoto: (personId: string, photoId: string) =>
+    request<void>(`/api/people/${personId}/photos/${photoId}`, { method: 'DELETE' }),
 
   audit: (personId?: string) => {
     const q = personId ? `?person_id=${encodeURIComponent(personId)}` : ''

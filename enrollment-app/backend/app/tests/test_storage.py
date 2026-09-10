@@ -55,14 +55,19 @@ def test_traversal_rejected(storage):
 
 def test_delete_photo_files_removes_all_copies(storage):
     person_id = str(uuid.uuid4())
+    photo_id = str(uuid.uuid4())
     name = storage.make_stored_filename("a.jpg")
     for directory in ("original", "normalized", "approved"):
         path = storage.resolve_inside("people", person_id, directory, name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"x")
-    storage.delete_photo_files(person_id, name)
+    thumb = storage.resolve_inside("people", person_id, "thumbs", f"{photo_id}.jpg")
+    thumb.parent.mkdir(parents=True, exist_ok=True)
+    thumb.write_bytes(b"t")
+    storage.delete_photo_files(person_id, name, photo_id)
     for directory in ("original", "normalized", "approved"):
         assert not storage.resolve_inside("people", person_id, directory, name).exists()
+    assert not thumb.exists()
 
 
 def test_delete_person_files_removes_tree(storage):

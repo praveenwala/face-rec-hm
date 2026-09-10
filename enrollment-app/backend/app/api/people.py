@@ -1,26 +1,40 @@
-"""People endpoints (Phase 2, contracts/rest-api.md).
+"""People endpoints (Phase 2 + Phase 3 file cleanup, contracts/rest-api.md).
 
 POST  /api/people          — create (never enrolls anything)
 GET   /api/people          — flat summary list; grouping happens in the frontend
 GET   /api/people/{id}     — detail
 PATCH /api/people/{id}     — display_name / relationship / enabled only
-DELETE /api/people/{id}    — 204, or 409 ENROLLED_PERSON_DELETE_REFUSED when enrolled
+DELETE /api/people/{id}    — 204, or 409 ENROLLED_PERSON_DELETE_REFUSED when enrolled;
+                             removes the person's private photo files (Phase 3)
 """
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_session, parse_uuid
+from app.api.deps import get_session, get_settings, parse_uuid
+from app.config import Settings
 from app.schemas import PersonCreate, PersonUpdate
 from app.services.person_service import PersonService
+from app.services.photo_service import PhotoService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/people", tags=["people"])
 
 
 def _service(session: Session = Depends(get_session)) -> PersonService:
     return PersonService(session)
+
+
+def _photo_service(
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> PhotoService:
+    return PhotoService(session, settings)
 
 
 @router.get("")
@@ -55,8 +69,17 @@ def update_person(
 
 
 @router.delete("/{person_id}", status_code=204)
-def delete_person(person_id: str, service: PersonService = Depends(_service)) -> Response:
-    # Phase 2: `remove_enrollment` is NOT honored — biometric removal is Phase 6, and
+def delete_person(
+    person_id: str,
+    service: PersonService = Depends(_service),
+    photo_service: PhotoService = Depends(_photo_service),
+) -> Response:
+    # Phase 2/3: `remove_enrollment` is NOT honored — biometric removal is Phase 6, and
     # refusing while ENROLLED is the only way to guarantee no orphaned enrollment.
-    service.delete(parse_uuid(person_id, name="person id"))
+    pid = parse_uuid(person_id, name="person id")
+    service.delete(pid)
+    try:
+        photo_service.delete_person_files(pid)
+    except Exception as exc:  # best effort — DB delete already committed
+        logger.warning("Person %s deleted but private files could not be removed: %s", pid, exc)
     return Response(status_code=204)

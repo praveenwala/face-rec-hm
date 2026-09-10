@@ -11,17 +11,14 @@ SC-012).
 
 - macOS (Intel POC host), Python >= 3.11 (`python3 --version`; if older, `brew install
   python@3.12` — the venv must use a 3.11+ interpreter), Node.js LTS + npm.
-- ffmpeg available (already a project dependency from feature 001's PD-02) for HEIC
-  normalization.
 - No Docker required for this app (native venv; the 001 stack may be up or down — the app is
   independent until Phase 6).
 
 ## Setup
 
 Prerequisites: macOS, Python >= 3.11 (`python3 --version`; if older, `brew install
-python@3.12`), Node.js LTS + npm, ffmpeg (for Phase 4 HEIC normalization; already a project
-dependency). No Docker required for this app — it is independent of the 001 stack until
-Phase 6.
+python@3.12`), Node.js LTS + npm. No Docker required for this app — it is independent of the
+001 stack until Phase 6.
 
 ```bash
 # Backend — first run only: creates .venv and installs pinned deps (run.sh does this
@@ -65,7 +62,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   http://127.0.0.1:8000/api/people/x/enroll      # → 501 (FEATURE_NOT_ENABLED, Phase 6 blocked)
 
 cd enrollment-app/backend && source .venv/bin/activate
-python -m pytest app/tests -v                     # → 49 passed (Phases 1–2)
+python -m pytest app/tests -v                     # → 76 passed (Phases 1–3)
 
 cd <repo root>
 git status --short                                 # → no enrollment-app/data/ content
@@ -92,6 +89,32 @@ Other Known**; Add Person, Edit (rename/relationship/enable), Disable/Enable, an
 (with confirmation) all work. Delete refuses with `409 ENROLLED_PERSON_DELETE_REFUSED` if a
 person is ever `ENROLLED` (not reachable before Phase 6).
 
+## Phase 3 validation (G3)
+
+```bash
+# Create a synthetic person, then upload a mix of good and bad files (synthetic only)
+PID=$(curl -s -X POST http://127.0.0.1:8000/api/people \
+  -H 'Content-Type: application/json' \
+  -d '{"display_name":"Test Person","relationship":"Family"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+
+# Good JPEG (use any small generated image) + a text file renamed .jpg
+curl -s -X POST http://127.0.0.1:8000/api/people/$PID/photos \
+  -F 'files=@/path/to/synthetic.jpg;type=image/jpeg' \
+  -F 'files=@/tmp/fake.txt;type=text/plain'   # fake.txt → UNSUPPORTED_FORMAT result, good.jpg → PENDING
+
+curl -s http://127.0.0.1:8000/api/people/$PID/photos   # → metadata list, quality_status PENDING
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/people/$PID/photos/<photo_id>/file
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/people/$PID/photos/<photo_id>/thumbnail
+curl -s -X DELETE http://127.0.0.1:8000/api/people/$PID/photos/<photo_id>   # → 204, files gone
+curl -s -X DELETE http://127.0.0.1:8000/api/people/$PID                     # → 204, photo tree gone
+```
+
+UI: People page cards show "N uploaded photos"; **Photos** opens the detail page with the
+multi-file dropzone (drag-and-drop or picker), one result line per file, a thumbnail grid
+(photo, filename, dimensions, size), an explicit **PENDING** badge on every photo (quality
+analysis is Phase 4 — no fabricated suitability), and delete with inline confirmation. The
+enrollment control stays visibly disabled.
+
 ## Automated tests (all phases)
 
 ```bash
@@ -102,22 +125,23 @@ python -m pytest app/tests -v
 Fixtures are generated public-domain/synthetic images (never household biometric media). The
 privacy tests assert the data path is gitignored and that deletion removes DB rows and files.
 
-## Walk-through (maps to spec US1–US6 — steps 1 and 5 live; 2–4 land with Phases 3–5)
+## Walk-through (maps to spec US1–US6 — steps 1, 2, and 5 live; 3–4 land with Phases 4–5)
 
-> Steps 1 and 5 (people management, US1/US5/US6) are implemented as of Phase 2 — see the
-> Phase 2 validation section above. Steps 2–4 (photos, quality, readiness) will be exercised
-> when Phases 3–5 land.
+> Steps 1, 2, and 5 (people + photo management, US1/US2/US5/US6) are implemented as of
+> Phase 3 — see the Phase 2/3 validation sections above. Steps 3–4 (quality + readiness)
+> land with Phases 4–5.
 
 1. **Create a person (US1)**: Add Person → display name + relationship (Family/Friend/
    Neighbor/Other Known). Verify the People page shows the card grouped under the right
-   heading (US6) with `0 suitable photos`, status `DRAFT`/`NOT_READY`. Confirm an audit entry
-   `PERSON_CREATED` exists and that creating the person performed **no** Frigate action
-   (SC-001 — no biometric data created anywhere).
+   heading (US6). Confirm an audit entry `PERSON_CREATED` exists and that creating the person
+   performed **no** Frigate action (SC-001 — no biometric data created anywhere).
 2. **Upload photos (US2)**: Drag a few JPEG/PNG/WEBP files into the dropzone (multi-file).
-   Each appears with its per-photo result — `SUITABLE`, `UNSUITABLE`, or `REVIEW_REQUIRED`
-   and a reason (US3). Confirm the originals are byte-identical to what you uploaded
-   (FR-011). HEIC file → normalized JPEG copy in `normalized/`, original untouched (or a clear
-   `UNSUPPORTED_FORMAT` if conversion fails).
+   Each appears with its per-photo result — currently `PENDING` (stored, not yet analyzed);
+   from Phase 4 each will show `SUITABLE`, `UNSUITABLE`, or `REVIEW_REQUIRED` with a reason
+   (US3). Confirm the originals are byte-identical to what you uploaded (FR-011). Upload
+   allowlist is exactly JPEG/PNG/WEBP (content-based, never extension): a HEIC/BMP/GIF/TIFF
+   payload → `UNSUPPORTED_FORMAT` (HEIC normalization is deferred pending approval); a valid
+   JPEG named `.txt` is accepted.
 3. **Quality classifications (US3)**: Upload deliberately bad files — a blank/corrupt file
    (`MEDIA_DECODE_FAILURE` or `UNSUPPORTED_FORMAT`, never `NO_FACE`), a very small/tiny face
    (`FACE_TOO_SMALL`), a blurry shot (`TOO_BLURRY`), and a photo with two people

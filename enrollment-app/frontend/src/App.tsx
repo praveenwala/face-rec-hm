@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api, type Health } from './api/client'
 import AddPersonPage from './pages/AddPersonPage'
 import PeoplePage from './pages/PeoplePage'
+import PersonDetailPage from './pages/PersonDetailPage'
 
 type HealthState =
   | { kind: 'loading' }
@@ -45,11 +46,14 @@ function DisabledEnrollmentControl() {
   )
 }
 
-type View = 'people' | 'add'
+type View =
+  | { name: 'people' }
+  | { name: 'add' }
+  | { name: 'detail'; personId: string }
 
 export default function App() {
   const health = useHealth()
-  const [view, setView] = useState<View>('people')
+  const [view, setView] = useState<View>({ name: 'people' })
 
   return (
     <div className="app">
@@ -59,16 +63,22 @@ export default function App() {
       </header>
 
       <main>
-        {view === 'people' ? (
-          <PeoplePage onAddPerson={() => setView('add')} />
-        ) : (
-          <AddPersonPage onDone={() => setView('people')} />
+        {view.name === 'people' && (
+          <PeoplePage
+            onAddPerson={() => setView({ name: 'add' })}
+            onOpenPerson={(personId) => setView({ name: 'detail', personId })}
+          />
+        )}
+        {view.name === 'add' && <AddPersonPage onDone={() => setView({ name: 'people' })} />}
+        {view.name === 'detail' && (
+          <PersonDetailPage personId={view.personId} onBack={() => setView({ name: 'people' })} />
         )}
 
         <section className="placeholder" aria-label="Enrollment status">
           <h2>Enrollment</h2>
           <p>
-            Photo upload, quality checks, approval, and readiness arrive in Phases 3–5.
+            Quality checks, approval, and readiness arrive in Phases 4–5; Frigate enrollment is
+            Phase 6 and stays disabled until then.
           </p>
           <DisabledEnrollmentControl />
         </section>

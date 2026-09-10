@@ -250,8 +250,9 @@ from Frigate's face library and the person returns to a non-enrolled state.
   `OVEREXPOSED`).
 - A file decodes fine but contains no recognizable face (must never be reported as
   `MEDIA_DECODE_FAILURE`; and vice versa).
-- HEIC/HEIF input: detected, normalized to JPEG when the local decoder (ffmpeg) supports it,
-  otherwise a clear `UNSUPPORTED_FORMAT` error. The original is never overwritten.
+- HEIC/HEIF input: detected by content and rejected with a clear `UNSUPPORTED_FORMAT`
+  error; normalization to JPEG is deferred pending explicit approval (no silent
+  normalization). The original is never overwritten.
 - A corrupt or truncated image (covered: `MEDIA_DECODE_FAILURE`, distinct from `NO_FACE`).
 - Two uploaded photos are obvious duplicates/near-duplicates (covered in Phase 5 where
   practical via perceptual hashing; flagged `REVIEW_REQUIRED`).
@@ -318,9 +319,11 @@ from Frigate's face library and the person returns to a non-enrolled state.
   `MEDIA_DECODE_FAILURE`/`UNSUPPORTED_FORMAT` MUST NOT be collapsed into `NO_FACE`.
 - **FR-017**: Photos with more than one face MUST be marked `REVIEW_REQUIRED` (reason
   `MULTIPLE_FACES`) and MUST NOT be silently accepted with an automatically chosen face.
-- **FR-018**: The application MUST support JPEG, PNG, and WEBP at minimum, and any other format
-  the installed image stack can decode; HEIC/HEIF MUST be detected and normalized to JPEG when
-  the local decoder supports it, otherwise rejected with `UNSUPPORTED_FORMAT`.
+- **FR-018**: The application upload allowlist MUST be exactly JPEG, PNG, and WEBP —
+  decided by decoded/sniffed content (magic bytes + decode), never by filename extension.
+  Valid images outside the allowlist (BMP/GIF/TIFF/other Pillow-decodable formats) and
+  HEIC/HEIF MUST be rejected with `UNSUPPORTED_FORMAT`; HEIC/HEIF normalization to JPEG is
+  deferred pending explicit approval (no silent normalization).
 - **FR-019**: Photo approval MUST be an explicit user action separate from upload; uploading a
   photo MUST NOT mark it approved.
 - **FR-020**: The application MUST compute enrollment readiness as the count of suitable AND

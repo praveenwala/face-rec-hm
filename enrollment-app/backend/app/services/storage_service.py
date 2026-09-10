@@ -58,6 +58,9 @@ class StorageService:
     def approved_dir(self, person_id: str) -> Path:
         return self.resolve_inside("people", person_id, "approved")
 
+    def thumb_dir(self, person_id: str) -> Path:
+        return self.resolve_inside("people", person_id, "thumbs")
+
     @staticmethod
     def make_stored_filename(original_name: str) -> str:
         """Randomized UUID filename with a whitelisted suffix (never the original name)."""
@@ -92,6 +95,20 @@ class StorageService:
             raise StorageError("Stored file not found", details={"path": relative_path})
         return path.read_bytes()
 
+    # -- thumbnails -----------------------------------------------------------
+
+    def write_thumbnail(self, person_id: str, photo_id: str, data: bytes) -> Path:
+        """Store a generated preview (max ~300px, JPEG) under the person's private
+        runtime data — gitignored like every other derived artifact (FR-011)."""
+        target = self.thumb_dir(person_id) / f"{photo_id}.jpg"
+        return self._write_atomic(target, data)
+
+    def read_thumbnail(self, person_id: str, photo_id: str) -> bytes:
+        path = self.resolve_inside("people", person_id, "thumbs", f"{photo_id}.jpg")
+        if not path.is_file():
+            raise StorageError("Stored thumbnail not found", details={"path": str(path)})
+        return path.read_bytes()
+
     # -- deletion --------------------------------------------------------------
 
     def delete_person_files(self, person_id: str) -> None:
@@ -102,8 +119,10 @@ class StorageService:
 
             shutil.rmtree(target)
 
-    def delete_photo_files(self, person_id: str, stored_filename: str) -> None:
-        """Remove every copy of one photo (original/normalized/approved)."""
+    def delete_photo_files(self, person_id: str, stored_filename: str, photo_id: str) -> None:
+        """Remove every copy of one photo (original/normalized/approved + thumbnail)."""
         for directory in ("original", "normalized", "approved"):
             path = self.resolve_inside("people", person_id, directory, stored_filename)
             path.unlink(missing_ok=True)
+        thumb = self.resolve_inside("people", person_id, "thumbs", f"{photo_id}.jpg")
+        thumb.unlink(missing_ok=True)

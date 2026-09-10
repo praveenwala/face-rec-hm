@@ -58,10 +58,10 @@ failures (e.g. zero readable files, storage failure).
 
 | Method & path | Body | Returns |
 |---|---|---|
-| `POST /api/people/{id}/photos` | `multipart/form-data`, field `files` (one or more) | `201` → `{ "results": [ { "photo_id", "original_filename", "quality_status", "rejection_reason", "measurements", "approved": false } ] }` — one result per file; upload alone never approves/enrolls |
+| `POST /api/people/{id}/photos` | `multipart/form-data`, field `files` (one or more) | `201` → `{ "results": [ { "photo_id", "original_filename", "quality_status", "rejection_reason", "measurements", "approved": false } ] }` — one result per file; upload alone never approves/enrolls. Rejected files carry `photo_id: null` and an explicit `rejection_reason` (`UNSUPPORTED_FORMAT`, `MEDIA_DECODE_FAILURE`, `FILE_TOO_LARGE`, `STORAGE_FAILURE`) and are never stored. Accepted files are `quality_status: PENDING` in Phase 3 (analysis is Phase 4). Upload allowlist is exactly **JPEG/PNG/WEBP**, decided by decoded/sniffed content — never by filename extension; valid BMP/GIF/TIFF/HEIC payloads are rejected `UNSUPPORTED_FORMAT` |
 | `GET /api/people/{id}/photos` | — | `{ "photos": [ PhotoSummary ] }` — metadata only (no bytes) |
 | `GET /api/people/{id}/photos/{photo_id}` | — | Photo metadata detail incl. all measurements |
-| `GET /api/people/{id}/photos/{photo_id}/file?kind=original\|normalized` | — | Image bytes (JPEG/PNG/etc.); loopback only |
+| `GET /api/people/{id}/photos/{photo_id}/file?kind=original\|normalized` | — | Image bytes (JPEG/PNG/etc.); loopback only. `kind=original` serves the untouched original; `kind=normalized` returns `404 PHOTO_NOT_FOUND` until Phase 4 produces normalized copies |
 | `GET /api/people/{id}/photos/{photo_id}/thumbnail` | — | Small preview (max ~300px) for the photo list/cards |
 | `POST /api/people/{id}/photos/{photo_id}/approve` | — | Photo; sets `approved=true` — an **explicit user action**, never automatic (FR-019/FR-023); updates readiness |
 | `POST /api/people/{id}/photos/{photo_id}/unapprove` | — | Photo; sets `approved=false` (approval revoked); updates readiness |

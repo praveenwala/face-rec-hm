@@ -265,3 +265,133 @@ button.danger { color: #e08787; border-color: #a44; }
   font-size: 0.8rem;
   color: #888;
 }
+
+/* person detail */
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: #bbb;
+  margin-bottom: 1rem;
+}
+
+.section-block {
+  margin-top: 1.25rem;
+}
+
+.section-block h3 {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+}
+
+/* upload dropzone */
+.upload-section { margin-bottom: 1rem; }
+
+.dropzone {
+  border: 2px dashed #666;
+  border-radius: 10px;
+  padding: 1.75rem 1.25rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone-active {
+  border-color: #2f6fd0;
+  background: rgba(47, 111, 208, 0.08);
+}
+
+.dropzone p:first-child {
+  margin: 0 0 0.3rem;
+  font-weight: 600;
+}
+
+.dropzone .form-hint { margin: 0; }
+
+.upload-results {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.upload-results li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.result-ok { border-color: #4a6ab8 !important; }
+.result-rejected { border-color: #a44 !important; }
+
+.result-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* photo grid */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.photo-card {
+  border: 1px solid #555;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+}
+
+.photo-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: #111;
+}
+
+.photo-meta {
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: #bbb;
+}
+
+.photo-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-dims { color: #999; }
+
+.photo-delete {
+  margin: 0 0.6rem 0.6rem;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  align-self: flex-start;
+}
+
+.photo-confirm {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}

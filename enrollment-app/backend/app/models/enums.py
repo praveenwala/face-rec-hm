@@ -35,6 +35,8 @@ class QualityStatus(str, Enum):
 class RejectionReason(str, Enum):
     MEDIA_DECODE_FAILURE = "MEDIA_DECODE_FAILURE"
     UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
+    FILE_TOO_LARGE = "FILE_TOO_LARGE"  # ingestion-level; over MAX_UPLOAD_BYTES
+    STORAGE_FAILURE = "STORAGE_FAILURE"  # ingestion-level; could not write private storage
     NO_FACE = "NO_FACE"
     MULTIPLE_FACES = "MULTIPLE_FACES"
     FACE_TOO_SMALL = "FACE_TOO_SMALL"
@@ -79,6 +81,7 @@ class ErrorCode(str, Enum):
     IDENTITY_CONFLICT = "IDENTITY_CONFLICT"
     PERSON_NOT_FOUND = "PERSON_NOT_FOUND"
     PHOTO_NOT_FOUND = "PHOTO_NOT_FOUND"
+    FILE_TOO_LARGE = "FILE_TOO_LARGE"  # upload-level error code (per-file rejection result)
     ENROLLED_PERSON_DELETE_REFUSED = "ENROLLED_PERSON_DELETE_REFUSED"
     NOT_READY = "NOT_READY"
     FEATURE_NOT_ENABLED = "FEATURE_NOT_ENABLED"

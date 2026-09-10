@@ -13,12 +13,13 @@ const GROUPS: { label: string; values: Relationship[] }[] = [
 
 interface PersonCardProps {
   person: PersonSummary
+  onOpen: (personId: string) => void
   onEdit: (person: PersonSummary) => void
   onToggleEnabled: (person: PersonSummary) => void
   onDelete: (person: PersonSummary) => void
 }
 
-function PersonCard({ person, onEdit, onToggleEnabled, onDelete }: PersonCardProps) {
+function PersonCard({ person, onOpen, onEdit, onToggleEnabled, onDelete }: PersonCardProps) {
   const initials = (person.display_name.trim()[0] ?? '?').toUpperCase()
   return (
     <div className={`card${person.enabled ? '' : ' card-disabled'}`}>
@@ -31,15 +32,18 @@ function PersonCard({ person, onEdit, onToggleEnabled, onDelete }: PersonCardPro
           {!person.enabled && <span className="badge badge-disabled">Disabled</span>}
         </div>
         <div className="card-meta">
-          {person.relationship} · {person.photo_count} photo{person.photo_count === 1 ? '' : 's'} ·{' '}
-          {person.suitable_count} suitable
+          {person.relationship} · {person.photo_count} uploaded photo
+          {person.photo_count === 1 ? '' : 's'}
         </div>
         <div className="card-meta">
           <span className="badge badge-status">{person.enrollment_status}</span>
-          {/* Photos/readiness arrive in Phases 3–5; representative photo comes from
-              approved uploads then. No fabricated photos in Phase 2. */}
+          {/* Uploaded photos show no quality claim yet — analysis is Phase 4, readiness
+              Phase 5, representative photo comes from approved uploads then. */}
         </div>
         <div className="card-actions">
+          <button type="button" className="primary" onClick={() => onOpen(person.id)}>
+            Photos
+          </button>
           <button type="button" onClick={() => onEdit(person)}>
             Edit
           </button>
@@ -177,9 +181,10 @@ function DeleteModal({ person, onCancel, onDeleted }: DeleteModalProps) {
 
 interface PeoplePageProps {
   onAddPerson: () => void
+  onOpenPerson: (personId: string) => void
 }
 
-export default function PeoplePage({ onAddPerson }: PeoplePageProps) {
+export default function PeoplePage({ onAddPerson, onOpenPerson }: PeoplePageProps) {
   const [people, setPeople] = useState<PersonSummary[] | null>(null)
   const [relationships, setRelationships] = useState<Relationship[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -249,6 +254,7 @@ export default function PeoplePage({ onAddPerson }: PeoplePageProps) {
                 <PersonCard
                   key={person.id}
                   person={person}
+                  onOpen={onOpenPerson}
                   onEdit={setEditing}
                   onToggleEnabled={() => void toggleEnabled(person)}
                   onDelete={setDeleting}

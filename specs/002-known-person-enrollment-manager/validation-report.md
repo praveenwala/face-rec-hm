@@ -2,7 +2,7 @@
 
 **Feature**: [Known Person Enrollment Manager](./spec.md)
 **Date**: 2026-09-10
-**Executed by**: Claude Code, per tasks T001–T008 (Phase 1 — Foundation)
+**Executed by**: Claude Code, per tasks T001–T021 (Phases 1–3)
 
 This is a living document (feature 001 convention): update it, don't recreate it, as each
 phase completes.
@@ -184,12 +184,122 @@ Phase 2 (people metadata lives entirely in `enrollment-app/data/app.db`).
   content. Local runtime DB was reset to a clean state after smoke testing (gitignored
   runtime state only; recreated on next boot).
 
+## Phase 3 (Photo Management) — Gate G3
+
+**Status: PASS — 2026-09-10.** Multi-file upload, private storage, metadata
+(Phase 3 fields only), controlled file/thumbnail serving, photo delete, audit events, and
+the Person Detail UI are implemented and verified. T016–T021 complete.
+
+### T016 — Upload endpoint
+
+- `POST /api/people/{id}/photos` (multipart field `files`, one or more) → 201
+  `{"results": [ {photo_id, original_filename, quality_status, rejection_reason,
+  measurements, approved} ]}` — one result per file, partial-failure semantics: a bad file
+  is rejected with an explicit reason and never aborts or corrupts the rest of the batch
+  (FR-010, US2).
+- Ingestion validation only (Phase 3 boundary): size check (`MAX_UPLOAD_BYTES` 20 MB →
+  `FILE_TOO_LARGE`), content sniffing by magic bytes (never extension), Pillow decode.
+  No face detection, no sharpness/brightness, no duplicates, no enrollment — those are
+  Phase 4/5/6. Accepted photos stay `quality_status=PENDING`, `approved=False`,
+  `enrolled_in_frigate=False` (FR-019/FR-022).
+- **Upload allowlist (user-approved correction): exactly JPEG/PNG/WEBP**, decided by
+  decoded/sniffed content — never by filename extension. Valid BMP/GIF/TIFF payloads are
+  rejected `UNSUPPORTED_FORMAT` (with `detected_format` in measurements), and extension
+  spoofing (e.g. a valid TIFF named `.jpg`) cannot widen the allowlist.
+- HEIC/HEIF detected by content (`ftyp` brand) → `UNSUPPORTED_FORMAT` (note: convert to
+  JPEG/PNG/WEBP; normalization deferred — no silent conversion) — never silently
+  accepted, never a decode failure.
+- Format distinctions kept explicit: text renamed `.jpg` → `UNSUPPORTED_FORMAT`;
+  corrupt/truncated JPEG magic → `MEDIA_DECODE_FAILURE` (FR-016, never collapsed into a
+  generic failure). Extension is never trusted: a valid JPEG named `.txt` is accepted.
+
+### T017 — Metadata extraction
+
+- Pillow records width/height (post-EXIF-transpose), mime by content
+  (`image/jpeg|png|webp|...`), and the raw EXIF orientation value in `measurements`
+  (`{"orientation": N}`). Originals are stored **byte-for-byte untouched** (FR-011) under
+  `people/<uuid>/original/` with randomized UUID filenames — never the user's filename, so
+  traversal/duplicate/Unicode names are display metadata only.
+
+### T018 — File + thumbnail endpoints
+
+- `GET .../photos/{photo_id}/file?kind=original|normalized` — `kind=original` serves the
+  exact original bytes with its content-derived mime (verified byte-for-byte in tests);
+  `kind=normalized` returns an explicit `404 PHOTO_NOT_FOUND` because normalized copies are
+  Phase 4 (honest, no fallback); invalid `kind` → 400 VALIDATION_ERROR.
+- `GET .../photos/{photo_id}/thumbnail` — generated at upload (max ~300px, JPEG,
+  EXIF-transposed, **no face crops**) stored under `people/<uuid>/thumbs/` (private,
+  gitignored).
+- Cross-person access to any photo endpoint returns 404 (no existence leak); missing
+  backing file on disk → safe 404 `PHOTO_NOT_FOUND`, never a 500. Responses never expose
+  `storage_path`/`stored_filename` (path-leakage test).
+
+### T019 — Photo delete
+
+- `DELETE .../photos/{photo_id}` → 204; removes the DB row + original/normalized/approved
+  copies + thumbnail. Safe for unknown id (404), cross-person id (404), and a vanished
+  backing file (still 204, `missing_ok`). Audit `PHOTO_DELETED` (details: person_id only).
+- Person delete (Phase 3) now also removes the person's private photo tree (best-effort,
+  logged on failure) so no orphaned files are left behind.
+
+### T020 — Frontend
+
+- `src/pages/PersonDetailPage.tsx`: person metadata + `UploadDropzone` (drag-and-drop +
+  file picker, multi-file) + `PhotoGrid` (thumbnails, filename, dimensions, size,
+  explicit **PENDING** badge, delete with inline confirmation). No quality outcomes are
+  fabricated — every uploaded photo visibly remains "stored, not yet analyzed".
+- `src/components/UploadDropzone.tsx` shows one result line per file
+  (accepted → PENDING badge; rejected → explicit reason).
+- `PeoplePage` cards now show "N uploaded photos" (never "suitable" — Phase 4 hasn't run)
+  and gain a **Photos** action opening the detail page. `App.tsx` routes
+  `people | add | detail`.
+
+### T021 — Tests
+
+`python -m pytest app/tests -q` → **78 passed** (17 Phase 1 + 32 Phase 2 + 29 Phase 3;
++2 for the allowlist tightening).
+New `test_photos.py` covers: valid JPEG/PNG/WEBP upload (stored + listed, PENDING,
+no paths leaked), corrupt JPEG → MEDIA_DECODE_FAILURE, text-as-jpg → UNSUPPORTED_FORMAT,
+HEIC → UNSUPPORTED_FORMAT (convert note), valid-image-wrong-extension accepted,
+GIF/BMP/TIFF → UNSUPPORTED_FORMAT (not in allowlist), extension spoofing cannot bypass
+the allowlist (valid TIFF named .jpg / GIF named .png rejected),
+oversized → FILE_TOO_LARGE (shrunk limit via monkeypatch), mixed batch partial results,
+traversal + Unicode + duplicate filenames, cross-person access blocked (get/file/
+thumbnail/delete all 404), photo on unknown person 404, file byte-for-byte + mime,
+`kind=normalized` 404, invalid kind 400, thumbnail ≤300px, delete removes row + all files,
+delete with missing file still 204, unknown photo 404, missing backing file → 404,
+person delete removes photo tree, audit PHOTO_UPLOADED/PHOTO_DELETED (metadata-only
+details), malformed UUIDs → 400, and no-image-bytes-in-DB invariant.
+
+### Live smoke (real server, loopback)
+
+Single-command flow against `run.sh` on `127.0.0.1:8000`: create person → mixed upload
+(1 good JPEG + 1 text file) → results `[PENDING, UNSUPPORTED_FORMAT]` → listing shows only
+`good.jpg` → thumbnail served (1767 B, image/jpeg) → file served byte-for-byte
+(5426 B, image/jpeg) → photo delete 204 → empty listing → person delete 204. Runtime DB
+reset to clean state afterward.
+
+### Feature 001 regression (SC-012)
+
+`tests/phase1/run_harness.sh all` re-run after Phase 3 → **OVERALL PASS** (all four checks;
+go2rtc source restored to `known-person-walk.mp4`). Photo ingestion is entirely local to
+`enrollment-app/data/` — no Ring/HA/Frigate behavior changed.
+
+### Privacy
+
+- All synthetic media (Pillow-generated) — no household photos anywhere; the existing
+  household set at `tests/phase1/test-media/photos/` was not moved or touched.
+- Files live only under `enrollment-app/data/people/<uuid>/` (gitignored; verified); no
+  image bytes in SQLite; audit details metadata-only; no absolute private paths in any API
+  response.
+
 ## Gating
 
 **Gate G1 = PASS** (Phase 1 report above).
-**Gate G2 = PASS.** Phase 3 (Photo Management) is actionable pending the user's review of
-this report (hard stop per the approved implementation authorization; nothing committed or
-pushed for Phase 2).
+**Gate G2 = PASS.**
+**Gate G3 = PASS.** Phase 4 (Photo Quality Validation) is actionable pending the user's
+review of this report (hard stop per the approved implementation authorization; nothing
+committed or pushed for Phase 3).
 
 ## Blocking issues
 
