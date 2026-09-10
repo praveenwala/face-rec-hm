@@ -63,7 +63,10 @@ web application (`enrollment-app/` — FastAPI + SQLite backend, React/Vite fron
 Mac venv; NEVER the Pi) is the management surface for the known-person library: create
 people with user-supplied relationships, upload/validate/approve enrollment photos
 (Frigate-aligned YuNet quality checks, Phases 3–4), and an enrollment-readiness gate
-(>= 5 suitable approved photos, Phase 5). Phases 1–5 are authorized; **Phase 6 (Frigate
+(>= 5 suitable approved photos, Phase 5). Phases 1–2 are complete and live (people CRUD,
+relationship categories, enable/disable, safe delete with enrolled-state protection, audit
+log, grouped People UI) — see `specs/002-known-person-enrollment-manager/validation-report.md`.
+Phases 3–5 are authorized and pending; **Phase 6 (Frigate
 enrollment) is BLOCKED pending explicit approval** and Phase 7 (HA) is not implemented —
 enrollment routes return `501 FEATURE_NOT_ENABLED` and the UI shows a disabled
 "Enrollment not enabled in this phase" control. All biometric data lives under

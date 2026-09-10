@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 
 import { api, type Health } from './api/client'
+import AddPersonPage from './pages/AddPersonPage'
+import PeoplePage from './pages/PeoplePage'
 
 type HealthState =
   | { kind: 'loading' }
@@ -43,8 +45,11 @@ function DisabledEnrollmentControl() {
   )
 }
 
+type View = 'people' | 'add'
+
 export default function App() {
   const health = useHealth()
+  const [view, setView] = useState<View>('people')
 
   return (
     <div className="app">
@@ -54,23 +59,18 @@ export default function App() {
       </header>
 
       <main>
-        <section className="placeholder" aria-label="People page placeholder">
-          <h2>People</h2>
+        {view === 'people' ? (
+          <PeoplePage onAddPerson={() => setView('add')} />
+        ) : (
+          <AddPersonPage onDone={() => setView('people')} />
+        )}
+
+        <section className="placeholder" aria-label="Enrollment status">
+          <h2>Enrollment</h2>
           <p>
-            Known people grouped by relationship (Family · Friends · Neighbors · Other Known)
-            arrive in Phase 2.
+            Photo upload, quality checks, approval, and readiness arrive in Phases 3–5.
           </p>
-        </section>
-
-        <section className="placeholder" aria-label="Add person placeholder">
-          <h2>Add Person</h2>
-          <p>Create a known person with a display name and a user-supplied relationship.</p>
           <DisabledEnrollmentControl />
-        </section>
-
-        <section className="placeholder" aria-label="Person detail placeholder">
-          <h2>Person Detail</h2>
-          <p>Photo upload, quality status, approval, and readiness arrive in Phases 3–5.</p>
         </section>
       </main>
 

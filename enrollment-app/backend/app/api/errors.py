@@ -12,6 +12,7 @@ internals to the client).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -26,6 +27,23 @@ logger = logging.getLogger(__name__)
 def error_payload(code: str, message: str, details: dict | None = None) -> dict:
     return {"error": {"code": code, "message": message, "details": details or {}}}
 
+
+def _json_safe(value: Any) -> Any:
+    """Strip non-JSON-serializable objects (e.g. exceptions embedded in Pydantic's
+    ``ctx``) so validation details always serialize cleanly."""
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, Exception):
+        return {"type": type(value).__name__, "message": str(value)}
+    try:
+        import json
+
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return str(value)
 
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
@@ -42,7 +60,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=error_payload(
                 ErrorCode.VALIDATION_ERROR.value,
                 "Request validation failed",
-                {"errors": exc.errors()},
+                {"errors": _json_safe(exc.errors())},
             ),
         )
 

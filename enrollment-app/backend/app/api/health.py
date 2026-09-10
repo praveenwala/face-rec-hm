@@ -6,23 +6,18 @@ by this POC phase (constitution IV.3 — unavailable ≠ false).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_session
 from app.config import APP_VERSION
 
 router = APIRouter()
 
 
-def _session(request: Request) -> Session:
-    factory = request.app.state.session_factory
-    with factory() as session:
-        yield session
-
-
 @router.get("/api/health")
-def health(request: Request, session: Session = Depends(_session)) -> dict:
+def health(session: Session = Depends(get_session)) -> dict:
     database_ok = False
     try:
         session.execute(text("SELECT 1"))

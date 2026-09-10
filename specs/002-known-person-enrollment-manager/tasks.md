@@ -88,25 +88,38 @@ pending user review (see validation-report.md Phase 1 section).
 
 **Purpose**: Create/edit/disable/delete people with relationship categories (US1, US5, US6).
 
-- [ ] T009 [US1] Relationship categories as a config list + `GET /api/relationships`
-  (`app/config.py`; FR-004)
-- [ ] T010 [US1] `PersonService` + endpoints `GET/POST /api/people`, `GET/PATCH/DELETE
+- [x] T009 [US1] Relationship categories as a config list + `GET /api/relationships`
+  (`app/config.py`; FR-004) — **DONE 2026-09-10**: `app/api/system.py` returns
+  `{"relationships": ["Family","Friend","Neighbor","Other Known"]}`; Pydantic enum
+  validates membership (400 VALIDATION_ERROR)
+- [x] T010 [US1] `PersonService` + endpoints `GET/POST /api/people`, `GET/PATCH/DELETE
   /api/people/{id}` (`app/services/person_service.py`, `app/api/people.py`) with validation
-  (display name required; relationship from the list; FR-003/FR-005)
-- [ ] T011 [US5] Disable/enable via `PATCH {enabled}`; disabled preserves the record, distinct
-  from delete and from enrollment removal (FR-025; `data-model.md` invariants)
-- [ ] T012 [US5] Delete lifecycle: `DELETE /api/people/{id}` removes person + photo rows +
+  (display name required; relationship from the list; FR-003/FR-005) — **DONE**: CRUD live;
+  UUID server-generated; malformed UUID → 400, unknown → 404; `extra="forbid"` on PATCH;
+  fix: validation handler now JSON-sanitizes Pydantic `ctx` exceptions
+- [x] T011 [US5] Disable/enable via `PATCH {enabled}`; disabled preserves the record, distinct
+  from delete and from enrollment removal (FR-025; `data-model.md` invariants) — **DONE**:
+  toggle live, record preserved; PERSON_ENABLED/DISABLED audited
+- [x] T012 [US5] Delete lifecycle: `DELETE /api/people/{id}` removes person + photo rows +
   stored files; refuses when `enrollment_status == ENROLLED` unless `remove_enrollment=true`
-  (FR-026; enforced in service, not just UI)
-- [ ] T013 [US1] Audit wiring: `PERSON_CREATED/UPDATED/DISABLED/ENABLED/DELETED`,
-  `RELATIONSHIP_CHANGED` (FR-031)
-- [ ] T014 [US6] UI: People page grouped by relationship (US6), Add Person form, edit,
-  disable/enable, delete with confirmation (`src/pages/PeoplePage.tsx`, `AddPersonPage.tsx`)
-- [ ] T015 [US5] Tests: person create, edit, relationship assignment/change, disable
+  (FR-026; enforced in service, not just UI) — **DONE**: photo rows cascade (FK
+  ondelete=CASCADE; file removal is Phase 3); **Phase-2 deviation**: delete is refused
+  (409 ENROLLED_PERSON_DELETE_REFUSED) whenever ENROLLED, even with
+  `remove_enrollment=true`, because Phase 6 removal is blocked — documented in
+  contracts/rest-api.md; branch exercised by direct-DB test
+- [x] T013 [US1] Audit wiring: `PERSON_CREATED/UPDATED/DISABLED/ENABLED/DELETED`,
+  `RELATIONSHIP_CHANGED` (FR-031) — **DONE**: all six events + `GET /api/audit`
+  (newest-first, `entity_type`/`entity_id`, details JSON only)
+- [x] T014 [US6] UI: People page grouped by relationship (US6), Add Person form, edit,
+  disable/enable, delete with confirmation (`src/pages/PeoplePage.tsx`, `AddPersonPage.tsx`) —
+  **DONE**: grouped cards (Family/Friends/Neighbors/Other Known), edit modal, delete
+  confirmation distinguishing Delete vs Disable, no fabricated photos
+- [x] T015 [US5] Tests: person create, edit, relationship assignment/change, disable
   (preserved), delete (record + photos + files gone), invalid relationship rejected (spec
-  testing list)
+  testing list) — **DONE**: `test_people.py` (32 tests); `pytest` → **49 passed** total
 
-**Checkpoint (Gate G2)**: People CRUD + grouping work in UI and API; audit entries present.
+**Checkpoint (Gate G2) — PASS 2026-09-10**: People CRUD + grouping work in UI and API;
+audit entries present; 001 harness OVERALL PASS unchanged; nothing committed/pushed.
 
 ---
 

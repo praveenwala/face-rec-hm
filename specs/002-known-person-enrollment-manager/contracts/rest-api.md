@@ -42,7 +42,7 @@ failures (e.g. zero readable files, storage failure).
 |---|---|
 | `GET /api/health` | `{ "status": "ok", "app_version": "...", "frigate": { "reachable": null } }` — `frigate.reachable` is populated only after Phase 6 wiring; `null` before |
 | `GET /api/relationships` | `{ "relationships": ["Family", "Friend", "Neighbor", "Other Known"] }` — the configurable category list |
-| `GET /api/audit?person_id=<uuid>` | `{ "entries": [ { "id", "timestamp", "action", "person_id", "photo_id", "details" } ] }` — newest first; no image bytes, no secrets |
+| `GET /api/audit?person_id=<uuid>` | `{ "entries": [ { "id", "timestamp", "action", "entity_type", "entity_id", "details" } ] }` — newest first; no image bytes, no secrets. (`entity_type`/`entity_id` replace the draft's `person_id`/`photo_id` — user-approved Phase 1 deviation; `details` is JSON metadata only) |
 
 ### People
 
@@ -52,7 +52,7 @@ failures (e.g. zero readable files, storage failure).
 | `POST /api/people` | `{ "display_name": str, "relationship": "Family\|Friend\|Neighbor\|Other Known" }` | `201` → Person; `400` validation; **never performs any enrollment action** |
 | `GET /api/people/{id}` | — | Person detail: all fields incl. `frigate_identity_name`, `enrollment_status`, counts |
 | `PATCH /api/people/{id}` | any of `{ "display_name"?, "relationship"?, "enabled"? }` | Person; renaming `display_name` never touches `frigate_identity_name` |
-| `DELETE /api/people/{id}` | optional query `?remove_enrollment=true` | `204`; `409 ENROLLED_PERSON_DELETE_REFUSED` when `enrollment_status == ENROLLED` and `remove_enrollment != true` (FR-026) |
+| `DELETE /api/people/{id}` | (query `?remove_enrollment=true` reserved for Phase 6) | `204`; `409 ENROLLED_PERSON_DELETE_REFUSED` when `enrollment_status == ENROLLED` (FR-026). **Phase-2 scope note:** while Phase 6 enrollment removal is blocked, delete is refused whenever `ENROLLED` — even with `remove_enrollment=true` — because honoring that flag would require Phase 6 Frigate removal and would otherwise orphan a biometric enrollment. No person can reach `ENROLLED` in Phases 1–5 |
 
 ### Photos (per person)
 

@@ -14,6 +14,8 @@ from fastapi import FastAPI
 from app.api.errors import register_exception_handlers
 from app.api.future import router as future_router
 from app.api.health import router as health_router
+from app.api.people import router as people_router
+from app.api.system import router as system_router
 from app.config import APP_VERSION, Settings, load_settings
 from app.db import make_session_factory
 
@@ -42,6 +44,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(health_router)
+    app.include_router(system_router)
+    app.include_router(people_router)
     app.include_router(future_router)
     return app
 

@@ -30,14 +30,17 @@ body {
 
 .badge {
   font-size: 0.8rem;
-  padding: 0.25rem 0.6rem;
+  padding: 0.2rem 0.55rem;
   border-radius: 999px;
   border: 1px solid #555;
+  white-space: nowrap;
 }
 
 .badge-pending { color: #bbb; }
 .badge-ok { color: #6ccb6c; border-color: #6ccb6c; }
 .badge-error { color: #e08787; border-color: #e08787; }
+.badge-disabled { color: #bbb; border-color: #888; }
+.badge-status { color: #9db8e8; border-color: #4a6ab8; }
 
 .placeholder {
   border: 1px dashed #666;
@@ -59,6 +62,202 @@ body {
 button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+button {
+  cursor: pointer;
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid #666;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+}
+
+button.primary { background: #2f6fd0; border-color: #2f6fd0; color: #fff; }
+button.danger { color: #e08787; border-color: #a44; }
+
+/* toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.toolbar h2 { margin: 0; font-size: 1.15rem; }
+
+/* groups + cards */
+.group { margin-bottom: 1.5rem; }
+
+.group-title {
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #aaa;
+  border-bottom: 1px solid #333;
+  padding-bottom: 0.3rem;
+  margin: 0 0 0.6rem;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.card {
+  display: flex;
+  gap: 0.75rem;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.card-disabled { opacity: 0.6; }
+
+.card-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #2f6fd0;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.card-body { min-width: 0; flex: 1; }
+
+.card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.card-name { font-weight: 600; }
+
+.card-meta {
+  font-size: 0.8rem;
+  color: #aaa;
+  margin-top: 0.2rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.card-actions {
+  margin-top: 0.6rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.card-actions button { padding: 0.25rem 0.6rem; font-size: 0.8rem; }
+
+/* empty state / errors */
+.empty-state {
+  border: 1px dashed #555;
+  border-radius: 8px;
+  padding: 2rem 1.25rem;
+  text-align: center;
+  color: #999;
+}
+
+.error-banner {
+  border: 1px solid #a44;
+  background: rgba(180, 60, 60, 0.12);
+  color: #e08787;
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+/* forms */
+.form {
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 1.25rem;
+  max-width: 480px;
+}
+
+.form-row {
+  display: block;
+  margin-bottom: 0.9rem;
+}
+
+.form-row > span {
+  display: block;
+  font-size: 0.85rem;
+  color: #bbb;
+  margin-bottom: 0.3rem;
+}
+
+.form-row input[type='text'],
+.form-row input:not([type]),
+.form-row select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #666;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font-size: 0.95rem;
+}
+
+.form-row-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-hint {
+  font-size: 0.8rem;
+  color: #999;
+  margin: 0 0 0.9rem;
+}
+
+.form-actions { display: flex; gap: 0.5rem; }
+
+/* modals */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.modal {
+  background: #1e1e1e;
+  border: 1px solid #555;
+  border-radius: 10px;
+  padding: 1.25rem;
+  width: min(420px, calc(100vw - 2rem));
+}
+
+.modal h3 { margin: 0 0 0.9rem; }
+
+.modal-warning { margin: 0 0 0.5rem; }
+
+.modal-hint {
+  font-size: 0.8rem;
+  color: #999;
+  margin: 0 0 0.9rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
 
 .app-footer {

@@ -65,12 +65,32 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   http://127.0.0.1:8000/api/people/x/enroll      # → 501 (FEATURE_NOT_ENABLED, Phase 6 blocked)
 
 cd enrollment-app/backend && source .venv/bin/activate
-python -m pytest app/tests -v                     # → 17 passed
+python -m pytest app/tests -v                     # → 49 passed (Phases 1–2)
 
 cd <repo root>
 git status --short                                 # → no enrollment-app/data/ content
 git check-ignore enrollment-app/data/app.db        # → ignored (exit 0)
 ```
+
+## Phase 2 validation (G2)
+
+```bash
+# People CRUD (synthetic names only)
+curl -s http://127.0.0.1:8000/api/relationships      # → the four categories
+curl -s -X POST http://127.0.0.1:8000/api/people \
+  -H 'Content-Type: application/json' \
+  -d '{"display_name":"Test Person","relationship":"Family"}'   # → 201, frigate_identity_name null
+curl -s http://127.0.0.1:8000/api/people            # → flat list (grouping is UI-side)
+curl -s -X PATCH http://127.0.0.1:8000/api/people/<id> \
+  -H 'Content-Type: application/json' -d '{"relationship":"Friend","enabled":false}'
+curl -s "http://127.0.0.1:8000/api/audit"          # → PERSON_CREATED, RELATIONSHIP_CHANGED, ...
+curl -s -X DELETE http://127.0.0.1:8000/api/people/<id>   # → 204
+```
+
+UI: open `127.0.0.1:5173` → People page groups cards under **Family / Friends / Neighbors /
+Other Known**; Add Person, Edit (rename/relationship/enable), Disable/Enable, and Delete
+(with confirmation) all work. Delete refuses with `409 ENROLLED_PERSON_DELETE_REFUSED` if a
+person is ever `ENROLLED` (not reachable before Phase 6).
 
 ## Automated tests (all phases)
 
@@ -82,10 +102,11 @@ python -m pytest app/tests -v
 Fixtures are generated public-domain/synthetic images (never household biometric media). The
 privacy tests assert the data path is gitignored and that deletion removes DB rows and files.
 
-## Walk-through (maps to spec US1–US6 — applicable once Phases 2–5 land)
+## Walk-through (maps to spec US1–US6 — steps 1 and 5 live; 2–4 land with Phases 3–5)
 
-> This walk-through validates Phases 2–5 and will be exercised when those phases are
-> implemented. Phase 1 (current) validation is the section above.
+> Steps 1 and 5 (people management, US1/US5/US6) are implemented as of Phase 2 — see the
+> Phase 2 validation section above. Steps 2–4 (photos, quality, readiness) will be exercised
+> when Phases 3–5 land.
 
 1. **Create a person (US1)**: Add Person → display name + relationship (Family/Friend/
    Neighbor/Other Known). Verify the People page shows the card grouped under the right
