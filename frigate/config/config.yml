@@ -69,5 +69,7 @@ face_recognition:
   detection_threshold: 0.7   # min face-detection score to consider a face
   unknown_score: 0.8         # min distance score to mark a potential match
   recognition_threshold: 0.9 # min distance score to assign a known identity
+  save_attempts: 20          # bounded recognition-attempt crop retention (privacy);
+                             # enrolled identity crops are separate and unaffected
 
 version: 0.17-0
