@@ -1,0 +1,18 @@
+{
+  "_note": "SYNTHETIC SAMPLE of the T034-B generated relationship-enrichment mapping (schema documentation only). Synthetic identities/UUIDs — NO real household data. The real runtime file (home-assistant/helpers/relationship_mapping.generated.json) is gitignored and contains real identity metadata. Keyed by frigate_identity_name (what Frigate reports as sub_label), NOT display_name.",
+  "schema_version": 1,
+  "identities": {
+    "Known_Person_A": {
+      "person_uuid": "00000000-0000-0000-0000-00000000000a",
+      "display_name": "Known Person A",
+      "relationship": "Family",
+      "enabled": true
+    },
+    "Known_Person_B": {
+      "person_uuid": "00000000-0000-0000-0000-00000000000b",
+      "display_name": "Known Person B",
+      "relationship": "Neighbor",
+      "enabled": false
+    }
+  }
+}

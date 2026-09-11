@@ -41,6 +41,11 @@ frigate/recordings/
 home-assistant/helpers/relationship_mapping.yaml
 !home-assistant/helpers/relationship_mapping.yaml.example
 
+# Generated relationship-enrichment mapping (T034-B) — derived from the Feature 002
+# enrollment DB; contains real household identity metadata (UUID/name/relationship).
+# Private/gitignored; never committed. Regenerate via the export tool.
+home-assistant/helpers/relationship_mapping.generated.json
+
 # Home Assistant credentials/tokens if ever staged locally
 home-assistant/**/secrets.yaml
 home-assistant/**/.storage/
