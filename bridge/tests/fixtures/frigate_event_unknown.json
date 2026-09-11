@@ -1,0 +1,31 @@
+{
+  "_note": "SANITIZED fixture derived from a real Frigate 0.17.2 frigate/events payload (T034-A). IDs/timestamps are synthetic; field STRUCTURE matches the live wire format. No real household media, no credentials. This is the UNKNOWN-person shape (sub_label null, no sub_label_score); the KNOWN shape sets sub_label to an identity string and carries sub_label_score.",
+  "type": "update",
+  "before": {
+    "id": "1700000000.000000-aaaaaa",
+    "camera": "front_door",
+    "label": "person",
+    "sub_label": null,
+    "score": 0.79,
+    "top_score": 0.82,
+    "start_time": 1700000000.0,
+    "end_time": null,
+    "false_positive": false
+  },
+  "after": {
+    "id": "1700000000.000000-aaaaaa",
+    "camera": "front_door",
+    "label": "person",
+    "sub_label": null,
+    "score": 0.8046875,
+    "top_score": 0.84375,
+    "start_time": 1700000000.0,
+    "end_time": null,
+    "false_positive": false,
+    "active": true,
+    "stationary": false,
+    "attributes": [],
+    "current_zones": [],
+    "entered_zones": []
+  }
+}

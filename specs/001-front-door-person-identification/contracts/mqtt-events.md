@@ -25,12 +25,25 @@ wire format differs from what's assumed here.
     "id": "string — Person Detection Event.event_id",
     "camera": "string — Camera Source.name, e.g. \"front_door\"",
     "label": "person",
-    "sub_label": ["<enrolled identity name> | null", "<confidence_score 0-1>"],
+    "sub_label": "<enrolled identity name string> | null",
+    "sub_label_score": "<face-recognition confidence 0-1> | null/absent",
+    "score": "<object/person-detection confidence 0-1> — NOT the recognition score",
+    "top_score": "<best detection score seen for this object 0-1>",
     "start_time": "unix timestamp",
     "end_time": "unix timestamp | null (null while event is ongoing)",
     "false_positive": "boolean"
   }
 }
+```
+
+> **Verified against Frigate 0.17.2 (T034-A, 2026-09-11) — corrects the earlier assumption.**
+> On the wire, `after.sub_label` is a **scalar string** (the recognized identity name) or
+> `null`; it is NOT a `[name, confidence]` array. The **face-recognition** confidence is a
+> separate field, `sub_label_score` (populated only when an identity is recognized; may be
+> absent/null otherwise — Frigate carries it via the event's `data.sub_label_score`,
+> internally set from the `(name, score)` tuple in `events/maintainer.py`). `after.score`
+> and `after.top_score` are the **object/person-detection** confidence and MUST NEVER be
+> substituted for the recognition confidence.
 ```
 
 ## Mapping to the data model
@@ -40,14 +53,14 @@ wire format differs from what's assumed here.
 | Person Detection Event `event_id` | `after.id` |
 | Person Detection Event `camera_source` | `after.camera` |
 | Person Detection Event `processing_status` | `detected` while `end_time` is null or absent-but-arriving; `identity_unavailable` if `frigate/available` shows Frigate offline for this event's window |
-| Recognition Result `status = Known` | `after.sub_label[0]` is non-null AND matches an **active** entry in the Identity Library AND `after.sub_label[1]` meets the confidence policy (research decision #9) AND the liveness check passes (FR-029) |
-| Recognition Result `status = Unknown` | `after.sub_label[0]` is null, OR present but below the confidence policy, OR the liveness check fails |
-| Recognition Result `confidence_score` | `after.sub_label[1]` |
-| Recognition Result `matched_identity` | Known Identity whose `name` equals `after.sub_label[0]`, only when `status = Known` |
+| Recognition Result `status = Known` | `after.sub_label` is a non-null string AND matches an **active** entry in the Identity Library AND `after.sub_label_score` meets the confidence policy (research decision #9) AND the liveness check passes (FR-029) |
+| Recognition Result `status = Unknown` | `after.sub_label` is null, OR present but `sub_label_score` is below the confidence policy, OR the liveness check fails |
+| Recognition Result `confidence_score` | `after.sub_label_score` (face-recognition score) — **never** `after.score`/`after.top_score` (detection) |
+| Recognition Result `matched_identity` | Known Identity whose `name` equals `after.sub_label`, only when `status = Known` |
 
 ## Validation rules carried from the spec
 
-- A `Known` result MUST NOT be produced from `after.sub_label[0]` alone without also checking
+- A `Known` result MUST NOT be produced from `after.sub_label` alone without also checking
   it against an **active** (non-`removed`) Identity Library entry (FR-021).
 - HA automations MUST treat a missing/stale `frigate/events` stream (per `frigate/available`
   or a stale `end_time`) as `Unavailable`, never silently as `Unknown` (FR-019, constitution
