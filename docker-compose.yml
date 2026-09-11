@@ -23,16 +23,16 @@ services:
     depends_on:
       - mosquitto
     ports:
-      - "${FRIGATE_UI_PORT:-5000}:5000"
-      - "8554:8554" # go2rtc RTSP restream (scripts/loop-test-video.sh publishes here)
+      - "127.0.0.1:${FRIGATE_UI_PORT:-5000}:5000" # loopback-only (runtime hardening: no LAN exposure of face-mgmt API)
+      - "127.0.0.1:8554:8554" # go2rtc RTSP restream — loopback-only (local test consumers use rtsp://127.0.0.1:8554)
     volumes:
       - ./frigate/config:/config
       - ./tests/phase1/test-media:/media/test-source:ro
       - /tmp/frigate-phase1-cache:/tmp/cache
-      # /media/frigate (Frigate's own clips/recordings/exports/db) is intentionally NOT
-      # bind-mounted into the repo — Frigate's own data volume stays outside the git
-      # working tree per research.md #6 / constitution II.4-II.5. It lives in the
-      # container's own filesystem for this disposable Phase 1 POC.
+      # Persistent, gitignored Frigate data volume (runtime hardening): enrolled face
+      # crops and runtime media survive container restart AND recreation. ./frigate/media
+      # is ignored by .gitignore (frigate/media/) — never committed (constitution II.4-II.5).
+      - ./frigate/media:/media/frigate
     environment:
       - TZ=${TZ:-UTC}
       # 0.17 breaking change (upgraded 2026-09-09 from 0.15.1): go2rtc exec:/echo:/expr:
