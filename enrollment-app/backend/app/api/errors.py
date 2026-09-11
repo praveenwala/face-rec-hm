@@ -4,9 +4,12 @@ Every error response shape:
 
     {"error": {"code": "...", "message": "...", "details": {...}}}
 
-Domain exceptions (app/exceptions.py) map to documented codes; validation errors map
-to VALIDATION_ERROR; anything else maps to INTERNAL_ERROR (logged, never leaking
-internals to the client).
+Domain exceptions (app/exceptions.py, all ``AppError`` subclasses) map to documented
+codes; validation errors map to VALIDATION_ERROR; anything else maps to INTERNAL_ERROR
+(logged, never leaking internals to the client).
+
+This is the single, canonical error-handling system for the whole app (Phase 1–5 and
+Phase 6). Do not register a second/duplicate unhandled-exception handler elsewhere.
 """
 
 from __future__ import annotations
@@ -45,12 +48,14 @@ def _json_safe(value: Any) -> Any:
     except (TypeError, ValueError):
         return str(value)
 
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
+        code = exc.code.value if isinstance(exc.code, ErrorCode) else str(exc.code)
         return JSONResponse(
             status_code=exc.status_code,
-            content=error_payload(exc.code.value, exc.message, exc.details),
+            content=error_payload(code, exc.message, exc.details),
         )
 
     @app.exception_handler(RequestValidationError)
@@ -69,7 +74,5 @@ def register_exception_handlers(app: FastAPI) -> None:
         logger.exception("Unhandled error: %s", exc)
         return JSONResponse(
             status_code=500,
-            content=error_payload(
-                ErrorCode.INTERNAL_ERROR.value, "Internal server error"
-            ),
+            content=error_payload(ErrorCode.INTERNAL_ERROR.value, "Internal server error"),
         )

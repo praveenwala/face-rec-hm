@@ -1,5 +1,9 @@
 # Quickstart: Validating the Known Person Enrollment Manager (Phases 1–5)
 
+> **Just want to run the app?** See [`enrollment-app/README.md`](../../enrollment-app/README.md) —
+> the short two-terminal run guide (backend `./run.sh` + frontend `npm run dev`), verification
+> commands, and troubleshooting.
+
 This validates feature 002's local management surface end-to-end: backend API, React UI,
 private storage, photo upload + quality validation, approval, and the readiness gate. It does
 **not** cover Frigate enrollment (Phase 6 — blocked until explicitly approved) or Home
@@ -40,6 +44,11 @@ npm install
 ```
 
 ## Start (two terminals)
+
+> Prefer one command? Use the Dockerized stack instead:
+> `docker compose -f docker-compose.enrollment.yml up -d --build` → open
+> http://127.0.0.1:8090 (see `enrollment-app/README.md` — loopback-only bindings,
+> shared gitignored `data/` bind mount).
 
 ```bash
 # Terminal 1 — backend on 127.0.0.1:8000 (loopback only)

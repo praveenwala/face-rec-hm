@@ -1,8 +1,17 @@
-"""FastAPI application factory (Feature 002, Phase 1 — Foundation).
+"""FastAPI application factory (Feature 002).
 
 The server binds to 127.0.0.1 only (run.sh / uvicorn CLI). The app itself holds no
 network binding — loopback-only is enforced by the startup command and asserted by
 tests (spec FR-002, SC-011).
+
+Routing:
+    health, system, people, photos      — Phase 1–5
+    enrollment                            — Phase 6 (single source of truth; flag-gated)
+    future                                — reserved (empty; no enrollment stubs)
+
+Error handling:
+    A SINGLE coherent system, registered once via register_exception_handlers
+    (app/api/errors.py). There is no second/duplicate unhandled-exception handler.
 """
 
 from __future__ import annotations
@@ -10,8 +19,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_exception_handlers
+from app.api.enrollment import router as enrollment_router
 from app.api.future import router as future_router
 from app.api.health import router as health_router
 from app.api.people import router as people_router
@@ -36,18 +47,29 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         version=APP_VERSION,
         description=(
             "Local management surface for the known-person library (Feature 002). "
-            "Localhost-only; enrollment into Frigate is not enabled in this phase."
+            "Localhost-only; Frigate enrollment is gated by FRIGATE_ENROLLMENT_ENABLED."
         ),
     )
     app.state.settings = settings
     app.state.session_factory = session_factory
-    app.state.storage = None  # instantiated by service deps as needed (Phase 2+)
+    app.state.storage = None  # instantiated by service deps as needed
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Single coherent error-handling system.
     register_exception_handlers(app)
+
     app.include_router(health_router)
     app.include_router(system_router)
     app.include_router(people_router)
     app.include_router(photos_router)
+    app.include_router(enrollment_router)
     app.include_router(future_router)
     return app
 

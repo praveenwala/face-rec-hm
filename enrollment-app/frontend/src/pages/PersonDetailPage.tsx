@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { api, ApiError, type PersonDetail, type PhotoSummary, type Readiness } from '../api/client'
+import {
+  api,
+  ApiError,
+  type FrigateStatusResult,
+  type PersonDetail,
+  type PhotoSummary,
+  type Readiness,
+} from '../api/client'
+import { EnrollButton } from '../components/EnrollButton'
 import PhotoGrid from '../components/PhotoGrid'
 import UploadDropzone from '../components/UploadDropzone'
 
@@ -17,18 +25,21 @@ export default function PersonDetailPage({ personId, onBack }: PersonDetailPageP
   const [person, setPerson] = useState<PersonDetail | null>(null)
   const [photos, setPhotos] = useState<PhotoSummary[]>([])
   const [readiness, setReadiness] = useState<Readiness | null>(null)
+  const [frigate, setFrigate] = useState<FrigateStatusResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const [p, ph, rd] = await Promise.all([
+      const [p, ph, rd, fr] = await Promise.all([
         api.getPerson(personId),
         api.listPhotos(personId),
         api.getReadiness(personId),
+        api.frigateStatusResult(),
       ])
       setPerson(p)
       setPhotos(ph)
       setReadiness(rd)
+      setFrigate(fr)
       setError(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -115,22 +126,23 @@ export default function PersonDetailPage({ personId, onBack }: PersonDetailPageP
         </div>
       )}
 
-      {/* Disabled Phase 6 control — contextual but never clickable (rule #21) */}
-      <div className="placeholder">
-        <h2>Frigate Enrollment</h2>
-        <p>
-          {isReady
-            ? 'Ready for enrollment — Enrollment is not enabled in this phase.'
-            : 'Enrollment unavailable — At least 5 approved suitable photos required.'}
-        </p>
-        <button type="button" disabled>
-          Enroll Approved Photos
-        </button>
-        <p className="modal-hint">
-          The control is disabled; no request is sent. Enrollment is a separate, explicitly
-          approved phase.
-        </p>
-      </div>
+      {/* Phase 6 enrollment control — feature state comes from /api/frigate/status,
+          never inferred from enrollment_status. While the backend flag is OFF this
+          renders the disabled "READY FOR ENROLLMENT" state and issues no request. */}
+      {isReady && (
+        <div className="section-block">
+          <h3>Frigate Enrollment</h3>
+          <EnrollButton
+            personId={personId}
+            displayName={person.display_name}
+            isReady={isReady}
+            enrollmentEnabled={
+              frigate?.kind === 'enabled' && frigate.status.enrollment_enabled
+            }
+            onEnrolled={() => void refresh()}
+          />
+        </div>
+      )}
 
       <UploadDropzone personId={personId} onUploaded={() => void refresh()} />
 

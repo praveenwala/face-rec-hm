@@ -140,6 +140,35 @@ export interface UpdatePersonInput {
   enabled?: boolean
 }
 
+// --- Feature 002 Phase 6 (enrollment) — matches backend enrollment routes ---
+//
+// All three endpoints are gated by FRIGATE_ENROLLMENT_ENABLED on the backend. While
+// the flag is OFF they return the canonical error envelope with code
+// FEATURE_NOT_ENABLED (HTTP 501); the frontend must render the disabled state rather
+// than issue mutations. Do NOT infer feature state from person.enrollment_status.
+
+// Read-only status snapshot returned when the feature is enabled. While disabled the
+// endpoint refuses with FEATURE_NOT_ENABLED (surfaced as ApiError), so callers treat a
+// FEATURE_NOT_ENABLED error as "enrollment disabled by system configuration".
+export interface FrigateStatus {
+  enrollment_enabled: boolean
+  frigate_reachable: boolean | null
+  api_url: string
+  identities: string[] | null
+}
+
+export interface EnrollmentMutationResponse {
+  person_id: string
+  enrollment_status: string
+  frigate_identity_name: string | null
+}
+
+// Discriminated feature-state result so the UI never has to catch-and-inspect inline.
+export type FrigateStatusResult =
+  | { kind: 'enabled'; status: FrigateStatus }
+  | { kind: 'disabled'; reason: string }
+  | { kind: 'error'; error: ApiError }
+
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 export const api = {
@@ -215,4 +244,41 @@ export const api = {
     const q = personId ? `?person_id=${encodeURIComponent(personId)}` : ''
     return request<{ entries: AuditEntry[] }>(`/api/audit${q}`).then((r) => r.entries)
   },
+
+  // --- Phase 6 (enrollment) ---
+
+  // Raw status call: resolves when enabled, throws ApiError (FEATURE_NOT_ENABLED)
+  // while the feature flag is OFF.
+  frigateStatus: () => request<FrigateStatus>('/api/frigate/status'),
+
+  // Convenience wrapper that turns the FEATURE_NOT_ENABLED refusal into an explicit
+  // "disabled" result instead of a thrown error, so callers can render feature state
+  // without inspecting exceptions. Never issues a mutation.
+  frigateStatusResult: async (): Promise<FrigateStatusResult> => {
+    try {
+      const status = await request<FrigateStatus>('/api/frigate/status')
+      return { kind: 'enabled', status }
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'FEATURE_NOT_ENABLED') {
+        return { kind: 'disabled', reason: err.message }
+      }
+      if (err instanceof ApiError) return { kind: 'error', error: err }
+      throw err
+    }
+  },
+
+  // Mutation — only ever called from an explicit, confirmed user action. While the
+  // backend flag is OFF this rejects with ApiError(FEATURE_NOT_ENABLED) and performs
+  // no Frigate mutation.
+  enrollPerson: (personId: string) =>
+    request<EnrollmentMutationResponse>(
+      `/api/people/${encodeURIComponent(personId)}/enroll`,
+      { method: 'POST', headers: JSON_HEADERS },
+    ),
+
+  removeEnrollment: (personId: string) =>
+    request<EnrollmentMutationResponse>(
+      `/api/people/${encodeURIComponent(personId)}/enrollment`,
+      { method: 'DELETE' },
+    ),
 }
