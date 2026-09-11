@@ -40,7 +40,7 @@ from app.models.audit import AuditLogEntry
 from app.models.person import Person
 from app.models.photo import EnrollmentPhoto
 from app.services.enrollment_service import EnrollmentService
-from app.services.frigate_service import FrigateEnrollmentService
+from app.services.frigate_service import FrigateEnrollmentService, PollConfig
 from app.services.storage_service import StorageService
 
 
@@ -66,6 +66,11 @@ class FakeFrigateTransport:
         self.register_count = 0
         self.fail_after_registers: int | None = None
         self.suppress_register_persist = False  # simulate accepted-but-not-stored
+        # Eventual-consistency simulation for GET /api/faces (reads only).
+        self.get_faces_count = 0
+        # ``faces_view(count, library) -> dict`` overrides what a GET observes, so tests
+        # can hide/reveal an identity or ramp a face count across successive polls.
+        self.faces_view = None
 
     def _maybe_fail(self, key: str):
         if key in self.fail_on:
@@ -89,7 +94,11 @@ class FakeFrigateTransport:
             return (forced[1], forced[2])
 
         if method == "GET" and path == "/api/faces":
-            return (200, {k: list(v) for k, v in self.library.items()})
+            self.get_faces_count += 1
+            actual = {k: list(v) for k, v in self.library.items()}
+            if self.faces_view is not None:
+                return (200, self.faces_view(self.get_faces_count, actual))
+            return (200, actual)
 
         if method == "POST" and path.endswith("/create"):
             name = path.split("/api/faces/")[1].rsplit("/create", 1)[0]
@@ -193,8 +202,28 @@ def _ready_person_with_photos(session, settings, *, n_distinct=5, extra_dupe=Fal
     return person
 
 
+def _fast_poll(timeout=1.0, interval=0.05):
+    """Deterministic, instant PollConfig for tests: a fake clock advances on each
+    sleep so timeouts are reached in a bounded number of iterations with zero real
+    waiting."""
+    clock = {"t": 0.0}
+
+    def monotonic():
+        return clock["t"]
+
+    def sleep(dt):
+        clock["t"] += dt
+
+    return PollConfig(
+        timeout_seconds=timeout,
+        interval_seconds=interval,
+        sleep=sleep,
+        monotonic=monotonic,
+    )
+
+
 def _service(session, settings, transport):
-    frigate = FrigateEnrollmentService(settings, transport=transport)
+    frigate = FrigateEnrollmentService(settings, transport=transport, poll=_fast_poll())
     return EnrollmentService(session=session, settings=settings, frigate=frigate)
 
 
@@ -815,4 +844,190 @@ class TestRollbackFailureDurableReference:
         assert person.frigate_identity_name is None
         assert person.enrollment_status == EnrollmentStatus.READY.value
         assert result["enrollment_status"] == EnrollmentStatus.READY.value
+        session.close()
+
+
+# ---------------------------------------------------------------------------
+# EVENTUAL-CONSISTENCY BUG FIX — bounded polling (tests A–F)
+# ---------------------------------------------------------------------------
+
+
+class TestEventualConsistency:
+    """Frigate 0.17.2 register/delete are eventually consistent. The service must poll
+    (read-only) until the expected state settles, never decide on a single immediate
+    read. Fake clock => instant, deterministic; no real waiting."""
+
+    def test_A_delayed_registration_visibility(self, tmp_path):
+        settings = _enabled_settings(tmp_path)
+        session = _session_for(settings)
+        person = _ready_person_with_photos(session, settings, n_distinct=6)
+        transport = FakeFrigateTransport()
+
+        # GET /api/faces returns {} for the first 2 polls, then reveals the real library.
+        def view(n, actual):
+            return {} if n <= 2 else actual
+        transport.faces_view = view
+
+        svc = _service(session, settings, transport)
+        result = svc.enroll(person.id)
+
+        assert result["enrollment_status"] == EnrollmentStatus.ENROLLED.value
+        creates = [c for c in transport.mutating_calls if c[1].endswith("/create")]
+        registers = [c for c in transport.mutating_calls if c[1].endswith("/register")]
+        assert len(creates) == 1
+        assert len(registers) == 6  # each selected image once; polling caused NO re-mutation
+        session.refresh(person)
+        assert person.frigate_identity_name == "Test_Person"
+        session.close()
+
+    def test_B_rollback_delete_delayed_disappearance(self, tmp_path):
+        settings = _enabled_settings(tmp_path)
+        session = _session_for(settings)
+        person = _ready_person_with_photos(session, settings, n_distinct=5)
+        transport = FakeFrigateTransport()
+        # Force a post-mutation failure so rollback runs.
+        transport.fail_after_registers = 2
+
+        # After the identity is deleted from the library, keep SHOWING it for the first
+        # 2 post-delete polls, then reflect true (absent) state.
+        state = {"deleted": False, "polls_after_delete": 0}
+        real_request = transport.request
+
+        def wrapper(method, path, *, json=None, files=None):
+            if method == "POST" and path.endswith("/delete"):
+                state["deleted"] = True
+            return real_request(method, path, json=json, files=files)
+        transport.request = wrapper
+
+        def view(n, actual):
+            if state["deleted"] and "Test_Person" not in actual:
+                state["polls_after_delete"] += 1
+                if state["polls_after_delete"] <= 2:
+                    return {"Test_Person": ["Test_Person_1.webp"]}  # stale visibility
+            return actual
+        transport.faces_view = view
+
+        svc = _service(session, settings, transport)
+        with pytest.raises(FrigateEnrollmentError):
+            svc.enroll(person.id)
+        session.refresh(person)
+        assert person.enrollment_status == EnrollmentStatus.READY.value
+        assert person.frigate_identity_name is None
+        actions = _audit_actions(session, person.id)
+        assert AuditAction.ENROLLMENT_ROLLBACK_COMPLETED.value in actions
+        session.close()
+
+    def test_C_rollback_never_settles(self, tmp_path):
+        settings = _enabled_settings(tmp_path)
+        session = _session_for(settings)
+        person = _ready_person_with_photos(session, settings, n_distinct=5)
+        transport = FakeFrigateTransport()
+        transport.fail_after_registers = 2  # post-mutation failure → rollback
+
+        # Delete "succeeds" but the identity NEVER disappears from GET within timeout.
+        # Only force stale visibility AFTER the delete is issued, so the pre-enrollment
+        # collision check still legitimately sees {}.
+        state = {"deleted": False}
+        real_request = transport.request
+
+        def wrapper(method, path, *, json=None, files=None):
+            if method == "POST" and path.endswith("/delete"):
+                state["deleted"] = True
+            return real_request(method, path, json=json, files=files)
+        transport.request = wrapper
+
+        def view(n, actual):
+            if state["deleted"]:
+                return {"Test_Person": ["Test_Person_1.webp"]}  # never disappears
+            return actual
+        transport.faces_view = view
+
+        svc = _service(session, settings, transport)
+        with pytest.raises(ReconciliationRequiredError):
+            svc.enroll(person.id)
+        session.refresh(person)
+        assert person.enrollment_status == EnrollmentStatus.ERROR.value
+        assert person.frigate_identity_name == "Test_Person"  # durable unresolved ref
+        rows = session.query(EnrollmentPhoto).filter_by(person_id=person.id).all()
+        assert all(not r.enrolled_in_frigate for r in rows)
+        actions = _audit_actions(session, person.id)
+        assert AuditAction.ENROLLMENT_ROLLBACK_FAILED.value in actions
+        # ROLLBACK_COMPLETED must NOT be emitted when absence was never observed.
+        assert AuditAction.ENROLLMENT_ROLLBACK_COMPLETED.value not in actions
+        session.close()
+
+    def test_D_registration_never_becomes_visible(self, tmp_path):
+        settings = _enabled_settings(tmp_path)
+        session = _session_for(settings)
+        person = _ready_person_with_photos(session, settings, n_distinct=5)
+        transport = FakeFrigateTransport()
+
+        # Registrations "succeed" but the identity NEVER appears → verify times out →
+        # rollback begins. Here the delete does settle (identity removed), so rollback
+        # completes and the person returns READY (no blind enrollment success).
+        def view(n, actual):
+            # Hide Test_Person entirely so present-verify times out.
+            return {k: v for k, v in actual.items() if k != "Test_Person"}
+        transport.faces_view = view
+
+        svc = _service(session, settings, transport)
+        with pytest.raises(FrigateEnrollmentError):
+            svc.enroll(person.id)
+        session.refresh(person)
+        assert person.enrollment_status == EnrollmentStatus.READY.value
+        assert person.frigate_identity_name is None
+        # No blind ENROLLED
+        actions = _audit_actions(session, person.id)
+        assert AuditAction.ENROLLMENT_COMPLETED.value not in actions
+        session.close()
+
+    def test_E_expected_face_count_delayed(self, tmp_path):
+        settings = _enabled_settings(tmp_path)
+        session = _session_for(settings)
+        person = _ready_person_with_photos(session, settings, n_distinct=6)
+        transport = FakeFrigateTransport()
+
+        # Identity visible but face count ramps 2 -> 4 -> 6 across successive polls.
+        ramp = {1: 2, 2: 4}
+
+        def view(n, actual):
+            faces = actual.get("Test_Person")
+            if not faces:
+                return actual
+            cap = ramp.get(n)  # for early polls, show fewer than the real count
+            if cap is not None:
+                clipped = dict(actual)
+                clipped["Test_Person"] = faces[:cap]
+                return clipped
+            return actual
+        transport.faces_view = view
+
+        svc = _service(session, settings, transport)
+        result = svc.enroll(person.id)
+        assert result["enrollment_status"] == EnrollmentStatus.ENROLLED.value
+        session.refresh(person)
+        assert person.frigate_identity_name == "Test_Person"
+        session.close()
+
+    def test_F_no_repeated_mutation_from_polling(self, tmp_path):
+        settings = _enabled_settings(tmp_path)
+        session = _session_for(settings)
+        person = _ready_person_with_photos(session, settings, n_distinct=6)
+        transport = FakeFrigateTransport()
+
+        def view(n, actual):
+            return {} if n <= 3 else actual  # several empty polls before settling
+        transport.faces_view = view
+
+        svc = _service(session, settings, transport)
+        svc.enroll(person.id)
+
+        creates = [c for c in transport.mutating_calls if c[1].endswith("/create")]
+        registers = [c for c in transport.mutating_calls if c[1].endswith("/register")]
+        deletes = [c for c in transport.mutating_calls if c[1].endswith("/delete")]
+        assert len(creates) == 1
+        assert len(registers) == 6  # exactly once per selected image
+        assert len(deletes) == 0    # success path → no delete
+        # Every extra call caused by polling was a read (GET), never a mutation.
+        assert transport.get_faces_count >= 4
         session.close()

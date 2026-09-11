@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 from app.config import Settings
@@ -66,6 +68,21 @@ def is_valid_frigate_identity_name(name: str) -> bool:
     return True
 
 
+@dataclass(frozen=True)
+class PollConfig:
+    """Bounded read-only polling config for Frigate's eventually-consistent face API.
+
+    ``timeout_seconds`` caps total wait; ``interval_seconds`` is the gap between
+    read-only GET /api/faces polls. ``sleep``/``monotonic`` are injectable so tests
+    run instantly (no real waiting) and remain deterministic.
+    """
+
+    timeout_seconds: float = 10.0
+    interval_seconds: float = 0.5
+    sleep: Callable[[float], None] = time.sleep
+    monotonic: Callable[[], float] = time.monotonic
+
+
 class FrigateTransport(Protocol):
     """Minimal HTTP-ish transport. Returns (status_code, json_body).
 
@@ -96,9 +113,11 @@ class FrigateEnrollmentService:
         self,
         settings: Settings,
         transport: FrigateTransport | None = None,
+        poll: PollConfig | None = None,
     ) -> None:
         self._settings = settings
         self._transport = transport
+        self._poll = poll or PollConfig()
 
     # ---- feature-flag guard ----------------------------------------------------
 
@@ -176,6 +195,47 @@ class FrigateEnrollmentService:
         status, body = self._call("GET", "/api/faces")
         body = self._raise_for_status(status, body, operation="list_identities")
         return body if isinstance(body, dict) else {}
+
+    # ---- bounded read-only polling (Frigate is eventually consistent) ----------
+
+    def wait_for_identity_present(self, name: str, *, min_faces: int = 1) -> bool:
+        """Poll GET /api/faces (read-only) until ``name`` exists with at least
+        ``min_faces`` registered crops, or the bounded timeout elapses.
+
+        Returns True iff the condition was observed within the timeout. Frigate 0.17.2
+        processes register/delete asynchronously (recognizer.clear() rebuild + crop-dir
+        settle), so a single immediate read is unreliable — this tolerates that lag
+        WITHOUT causing any mutation (reads only).
+        """
+
+        def _observed() -> bool:
+            faces = self.list_identities().get(name)
+            return bool(faces) and len(faces) >= min_faces
+
+        return self._poll_until(_observed)
+
+    def wait_for_identity_absent(self, name: str) -> bool:
+        """Poll GET /api/faces (read-only) until ``name`` is absent, or timeout.
+
+        Returns True iff absence was observed within the timeout. Used to confirm a
+        delete/rollback actually settled before classifying it as complete.
+        """
+
+        def _observed() -> bool:
+            return name not in self.list_identities()
+
+        return self._poll_until(_observed)
+
+    def _poll_until(self, condition: Callable[[], bool]) -> bool:
+        cfg = self._poll
+        deadline = cfg.monotonic() + cfg.timeout_seconds
+        # Always check once immediately, then poll until the deadline.
+        while True:
+            if condition():
+                return True
+            if cfg.monotonic() >= deadline:
+                return False
+            cfg.sleep(cfg.interval_seconds)
 
     def recognize(self, image_bytes: bytes) -> dict[str, Any]:
         """POST /api/faces/recognize — non-persisting verification. Read-only."""

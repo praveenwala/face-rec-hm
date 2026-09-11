@@ -260,17 +260,18 @@ class EnrollmentService:
                     entity_id=sel.id,
                     details={"identity": identity_name},
                 )
-            # (11) verify identity exists + (12) verify accepted crop count
-            after = self._frigate.list_identities()
-            files = after.get(identity_name)
-            if not files:
+            # (11) verify identity exists + (12) verify accepted crop count — via bounded
+            # read-only polling (Frigate is eventually consistent after register_face's
+            # async recognizer.clear() rebuild + crop-dir settle). Poll only reads.
+            if not self._frigate.wait_for_identity_present(
+                identity_name, min_faces=len(submitted_ids)
+            ):
+                after = self._frigate.list_identities()
+                observed = len(after.get(identity_name, []))
                 raise FrigateEnrollmentError(
-                    f"Frigate identity '{identity_name}' not present after registration."
-                )
-            if len(files) < len(submitted_ids):
-                raise FrigateEnrollmentError(
-                    f"Frigate accepted {len(files)} face record(s) but "
-                    f"{len(submitted_ids)} were submitted.",
+                    f"Frigate identity '{identity_name}' did not reach the expected "
+                    f"{len(submitted_ids)} registered face record(s) within the "
+                    f"verification timeout (observed {observed}).",
                     details={"identity": identity_name},
                 )
         except Exception as exc:
@@ -339,10 +340,12 @@ class EnrollmentService:
             current = self._frigate.list_identities()
             ids = list(current.get(identity_name, []))
             self._frigate.remove_identity(identity_name, ids)
-            after = self._frigate.list_identities()
-            if identity_name in after:
+            # Confirm absence via bounded read-only polling — NEVER declare rollback
+            # complete on an immediate read (Frigate delete is eventually consistent).
+            if not self._frigate.wait_for_identity_absent(identity_name):
                 raise FrigateEnrollmentError(
-                    f"Rollback did not remove identity '{identity_name}'."
+                    f"Rollback delete issued but identity '{identity_name}' remained "
+                    f"present within the verification timeout."
                 )
         except Exception as rb_exc:
             # Rollback failed. Persist a DURABLE, sanitized reference to the external
@@ -433,14 +436,14 @@ class EnrollmentService:
                 f"enrolled. Manual reconciliation required.",
                 details={"identity": identity_name},
             )
-        # (2) enumerate ids, (3) delete all, (4) verify absent
+        # (2) enumerate ids, (3) delete all, (4) verify absent (bounded read-only poll)
         ids = list(current.get(identity_name, []))
         try:
             self._frigate.remove_identity(identity_name, ids)
-            after = self._frigate.list_identities()
-            if identity_name in after:
+            if not self._frigate.wait_for_identity_absent(identity_name):
                 raise FrigateEnrollmentError(
-                    f"Frigate identity '{identity_name}' still present after deletion."
+                    f"Frigate identity '{identity_name}' still present after deletion "
+                    f"(did not settle within the verification timeout)."
                 )
         except FrigateEnrollmentError:
             # External deletion failed → retain everything, do not report success.
