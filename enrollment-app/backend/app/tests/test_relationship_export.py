@@ -159,13 +159,13 @@ def test_I_atomic_write_no_partial(tmp_path, monkeypatch):
     # First, a real successful write to establish a baseline file.
     export_mapping(s, target)
     baseline = target.read_text()
-    # Now force json.dump to fail mid-write; target must remain the baseline (untouched).
+    # Now force JSON rendering to fail mid-write; target must remain the baseline.
     import app.tools.relationship_export as re_mod
 
     def boom(*a, **k):
         raise RuntimeError("simulated serialization failure")
 
-    monkeypatch.setattr(re_mod.json, "dump", boom)
+    monkeypatch.setattr(re_mod, "render_json", boom)
     with pytest.raises(RuntimeError):
         export_mapping(s, target)
     assert target.read_text() == baseline              # unchanged, not partial

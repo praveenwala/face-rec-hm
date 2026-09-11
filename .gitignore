@@ -45,6 +45,7 @@ home-assistant/helpers/relationship_mapping.yaml
 # enrollment DB; contains real household identity metadata (UUID/name/relationship).
 # Private/gitignored; never committed. Regenerate via the export tool.
 home-assistant/helpers/relationship_mapping.generated.json
+home-assistant/helpers/relationship_mapping.generated.yaml
 
 # Home Assistant credentials/tokens if ever staged locally
 home-assistant/**/secrets.yaml
