@@ -1,0 +1,5 @@
+# T034-C2.2 isolated fixture — never commit the throwaway HA runtime or caches.
+# The synthetic mapping/fixtures/templates/harness ARE intended to be tracked; the venv is not.
+.ha-venv/
+__pycache__/
+*.pyc

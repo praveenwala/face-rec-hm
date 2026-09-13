@@ -1,0 +1,108 @@
+{
+  "_comment": "T034-C2.2 SYNTHETIC frigate/events-style inputs — ISOLATED TEST FIXTURE ONLY. No real data. Each case mirrors the raw Frigate 0.17.2 event payload shape that T034-A parses (top-level {type, before, after}); the C2.2 Jinja normalizes value_json.after just like the reference oracle consumes FrigateEventParse. sub_label is a scalar identity string or null; sub_label_score is the SEPARATE face-recognition confidence; after.score is object/person detection.",
+  "cases": [
+    {
+      "id": "A_known_enabled",
+      "expect": {"outcome": "IDENTITY_KNOWN", "known": true, "raw_identity": "Known_Person_A", "identity": "Known Person A", "person_uuid": "00000000-0000-0000-0000-00000000000a", "relationship": "Family", "enabled": true, "recognition_confidence": 0.93, "detection_confidence": 0.84},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-A", "camera": "front_door", "label": "person", "sub_label": "Known_Person_A", "sub_label_score": 0.93, "score": 0.84}}
+    },
+    {
+      "id": "B_null_identity",
+      "expect": {"outcome": "IDENTITY_UNKNOWN", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-B", "camera": "front_door", "label": "person", "sub_label": null, "score": 0.80}}
+    },
+    {
+      "id": "C_disabled",
+      "expect": {"outcome": "IDENTITY_DISABLED", "known": false, "raw_identity": "Known_Person_B", "identity": null, "person_uuid": null, "relationship": null, "enabled": false, "recognition_confidence": 0.95, "detection_confidence": 0.82},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-C", "camera": "front_door", "label": "person", "sub_label": "Known_Person_B", "sub_label_score": 0.95, "score": 0.82}}
+    },
+    {
+      "id": "D_unmapped",
+      "expect": {"outcome": "IDENTITY_UNMAPPED", "known": false, "raw_identity": "Nobody", "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": 0.90, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-D", "camera": "front_door", "label": "person", "sub_label": "Nobody", "sub_label_score": 0.90, "score": 0.80}}
+    },
+    {
+      "id": "E_invalid_relationship",
+      "expect": {"outcome": "MAPPING_UNAVAILABLE", "known": false, "raw_identity": "Bad_Relationship", "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": 0.90, "detection_confidence": null},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-E", "camera": "front_door", "label": "person", "sub_label": "Bad_Relationship", "sub_label_score": 0.90}}
+    },
+    {
+      "id": "F_missing_mapping",
+      "expect": {"outcome": "MAPPING_UNAVAILABLE", "known": false, "raw_identity": "Known_Person_A", "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": 0.90, "detection_confidence": null},
+      "mapping_status": "MISSING",
+      "event": {"type": "update", "before": {}, "after": {"id": "e-F", "camera": "front_door", "label": "person", "sub_label": "Known_Person_A", "sub_label_score": 0.90}}
+    },
+    {
+      "id": "G_unsupported_schema",
+      "expect": {"outcome": "MAPPING_UNAVAILABLE", "known": false, "raw_identity": "Known_Person_A", "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": 0.90, "detection_confidence": null},
+      "mapping_schema_override": 2,
+      "event": {"type": "update", "before": {}, "after": {"id": "e-G", "camera": "front_door", "label": "person", "sub_label": "Known_Person_A", "sub_label_score": 0.90}}
+    },
+    {
+      "id": "H_malformed_sub_label",
+      "expect": {"outcome": "RECOGNITION_FAILURE", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-H", "camera": "front_door", "label": "person", "sub_label": ["Known_Person_A", 0.9], "sub_label_score": 0.9, "score": 0.80}}
+    },
+    {
+      "id": "I_empty_identity",
+      "expect": {"outcome": "IDENTITY_UNKNOWN", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-I", "camera": "front_door", "label": "person", "sub_label": "   ", "score": 0.80}}
+    },
+    {
+      "id": "J_score_separation",
+      "expect": {"outcome": "IDENTITY_KNOWN", "known": true, "raw_identity": "Known_Person_A", "identity": "Known Person A", "person_uuid": "00000000-0000-0000-0000-00000000000a", "relationship": "Family", "enabled": true, "recognition_confidence": 0.93, "detection_confidence": 0.84},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-J", "camera": "front_door", "label": "person", "sub_label": "Known_Person_A", "sub_label_score": 0.93, "score": 0.84}}
+    },
+    {
+      "id": "K_missing_recognition_score",
+      "expect": {"outcome": "RECOGNITION_FAILURE", "known": false, "raw_identity": "Known_Person_A", "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.84},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-K", "camera": "front_door", "label": "person", "sub_label": "Known_Person_A", "score": 0.84}}
+    },
+    {
+      "id": "L_boolean_recognition_score",
+      "expect": {"outcome": "RECOGNITION_FAILURE", "known": false, "raw_identity": "Known_Person_A", "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-L", "camera": "front_door", "label": "person", "sub_label": "Known_Person_A", "sub_label_score": true, "score": 0.80}}
+    },
+    {
+      "id": "M_non_person",
+      "expect": {"outcome": "IGNORED_NON_PERSON", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": null},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-M", "camera": "front_door", "label": "car", "sub_label": "whatever", "score": 0.80}}
+    },
+    {
+      "id": "N_wrong_enabled_type",
+      "expect": {"outcome": "MAPPING_UNAVAILABLE", "known": false, "raw_identity": "Wrong_Enabled_Type", "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": 0.90, "detection_confidence": null},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-N", "camera": "front_door", "label": "person", "sub_label": "Wrong_Enabled_Type", "sub_label_score": 0.90}}
+    },
+    {
+      "id": "O_missing_uuid",
+      "expect": {"outcome": "MAPPING_UNAVAILABLE", "known": false, "raw_identity": "Missing_UUID", "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": 0.90, "detection_confidence": null},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-O", "camera": "front_door", "label": "person", "sub_label": "Missing_UUID", "sub_label_score": 0.90}}
+    },
+    {
+      "id": "P_missing_display_name",
+      "expect": {"outcome": "MAPPING_UNAVAILABLE", "known": false, "raw_identity": "Missing_Display_Name", "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": 0.90, "detection_confidence": null},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-P", "camera": "front_door", "label": "person", "sub_label": "Missing_Display_Name", "sub_label_score": 0.90}}
+    },
+    {
+      "id": "Q_string_key_true",
+      "expect": {"outcome": "IDENTITY_KNOWN", "known": true, "raw_identity": "true", "identity": "Yes Person", "person_uuid": "00000000-0000-0000-0000-00000000c0de", "relationship": "Other Known", "enabled": true, "recognition_confidence": 0.90, "detection_confidence": null},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-Q", "camera": "front_door", "label": "person", "sub_label": "true", "sub_label_score": 0.90}}
+    },
+    {
+      "id": "R_unicode",
+      "expect": {"outcome": "IDENTITY_KNOWN", "known": true, "raw_identity": "José", "identity": "José Árbol", "person_uuid": "00000000-0000-0000-0000-0000000000c3", "relationship": "Friend", "enabled": true, "recognition_confidence": 0.90, "detection_confidence": null},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-R", "camera": "front_door", "label": "person", "sub_label": "José", "sub_label_score": 0.90}}
+    },
+    {
+      "id": "S_sequential_second",
+      "_note": "Rendered AFTER A/J in the same session to prove no stale leakage; a null-identity event must carry nothing from a prior known render.",
+      "expect": {"outcome": "IDENTITY_UNKNOWN", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.70},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-S", "camera": "front_door", "label": "person", "sub_label": null, "score": 0.70}}
+    },
+    {
+      "id": "T_disabled_malformed_metadata",
+      "expect": {"outcome": "IDENTITY_DISABLED", "known": false, "raw_identity": "Disabled_Malformed", "identity": null, "person_uuid": null, "relationship": null, "enabled": false, "recognition_confidence": 0.90, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-T", "camera": "front_door", "label": "person", "sub_label": "Disabled_Malformed", "sub_label_score": 0.90, "score": 0.80}}
+    }
+  ]
+}

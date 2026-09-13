@@ -1,0 +1,150 @@
+{#-
+  T034-C2.2 — HA-native Jinja identity normalization macro (ISOLATED TEST FIXTURE ONLY).
+
+  Mirrors the C2.1 reference oracle bridge/identity_normalizer.py exactly:
+    - deterministic outcome precedence (1..9)
+    - trust rule (known=true ONLY for a fully-valid IDENTITY_KNOWN)
+    - fail-closed on missing/invalid recognition score (NEVER substitute after.score)
+    - absent (IDENTITY_UNMAPPED) vs broken (MAPPING_UNAVAILABLE) distinguished
+    - enabled==false -> IDENTITY_DISABLED with trusted metadata null
+
+  This is NOT wired into live HA. It renders a JSON object string so an isolated test
+  harness can parse and compare each field to the reference model.
+
+  INPUTS (macro args):
+    ev              : the raw frigate/events payload object ({type, before, after}) — as
+                      value_json would be at runtime. after.sub_label is a scalar identity
+                      string or null; after.sub_label_score is the SEPARATE recognition
+                      confidence; after.score is object/person DETECTION.
+    mapping         : the loaded relationship mapping object ({schema_version, identities})
+                      or none.
+    mapping_status  : explicit availability signal LOADED|MISSING|MALFORMED|UNSUPPORTED
+                      (mirrors C2.1 MappingStatus; caller supplies it, never inferred from
+                      a template exception).
+
+  HA/Jinja type-safety notes:
+    - `x is boolean` is used to REJECT bools before any numeric acceptance (bool is an int
+      subclass in Python/Jinja; `true is number` would otherwise be truthy).
+    - A score is valid iff: not boolean, is number, and is finite (== itself rules out NaN;
+      abs < infinity rules out +/-inf). Matches C2.1 _valid_score.
+    - Membership/type of mapping + entries guarded with `is mapping` and `in`.
+-#}
+
+{#- ===== helpers as namespace-scoped macros returning "1"/"0" flags (Jinja has no bool
+     return from macros; we emit tokens and test them) ===== -#}
+
+{%- macro _is_valid_score(v) -%}
+{%- if v is boolean -%}0
+{%- elif v is number and (v == v) and (v|abs < float('inf')) -%}1
+{%- else -%}0
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro _is_nonempty_str(v) -%}
+{%- if v is string and v|trim != '' -%}1{%- else -%}0{%- endif -%}
+{%- endmacro -%}
+
+{%- macro normalize(ev, mapping, mapping_status='LOADED') -%}
+{#- ---- extract raw fields defensively ---- -#}
+{%- set after = ev.after if (ev is mapping and 'after' in ev and ev.after is mapping) else none -%}
+{%- set label = (after.label if (after is not none and 'label' in after) else none) -%}
+
+{#- detection_confidence = after.score ONLY, when a valid score; else null. Never top_score. -#}
+{%- set raw_det = (after.score if (after is not none and 'score' in after) else none) -%}
+{%- set det = (raw_det if _is_valid_score(raw_det)|trim == '1' else none) -%}
+
+{#- ===== (1) non-person / no parseable person event ===== -#}
+{%- if after is none -%}
+  {%- set outcome = 'RECOGNITION_FAILURE' -%}{%- set reason = 'parse error' -%}
+  {{- _emit(outcome, false, none, none, none, none, none, none, none, reason) -}}
+{%- elif label != 'person' -%}
+  {{- _emit('IGNORED_NON_PERSON', false, none, none, none, none, none, none, none, 'non-person event') -}}
+{%- else -%}
+  {#- interpret sub_label like T034-A _coerce_identity: non-empty scalar string => identity;
+      null/missing => no identity; any other shape (list/dict/number/bool) => malformed. -#}
+  {%- set raw_sub = (after.sub_label if 'sub_label' in after else none) -%}
+  {%- set sub_is_str = (raw_sub is string) -%}
+  {%- set sub_malformed = (raw_sub is not none) and (not sub_is_str) -%}
+  {%- set identity = (raw_sub|trim if (sub_is_str and raw_sub|trim != '') else none) -%}
+
+  {#- ===== (2) malformed sub_label shape -> RECOGNITION_FAILURE ===== -#}
+  {%- if sub_malformed -%}
+    {{- _emit('RECOGNITION_FAILURE', false, none, none, none, none, none, none, det, 'malformed sub_label') -}}
+  {#- ===== (3) no asserted identity -> IDENTITY_UNKNOWN ===== -#}
+  {%- elif identity is none -%}
+    {{- _emit('IDENTITY_UNKNOWN', false, none, none, none, none, none, none, det, none) -}}
+  {%- else -%}
+    {%- set raw_score = (after.sub_label_score if 'sub_label_score' in after else none) -%}
+    {#- ===== (4) asserted identity + missing/invalid recognition score -> RECOGNITION_FAILURE ===== -#}
+    {%- if _is_valid_score(raw_score)|trim != '1' -%}
+      {{- _emit('RECOGNITION_FAILURE', false, identity, none, none, none, none, none, det,
+               'recognized identity without valid recognition confidence') -}}
+    {%- else -%}
+      {%- set recog = raw_score | float -%}
+      {#- ===== (5) mapping globally unavailable/invalid -> MAPPING_UNAVAILABLE ===== -#}
+      {%- set schema = (mapping.schema_version if (mapping is mapping and 'schema_version' in mapping) else none) -%}
+      {%- set schema_ok = (schema is not boolean) and (schema is number) and (schema | int == 1) and (schema == 1) -%}
+      {%- set identities = (mapping.identities if (mapping is mapping and 'identities' in mapping) else none) -%}
+      {%- if mapping_status != 'LOADED' -%}
+        {{- _emit('MAPPING_UNAVAILABLE', false, identity, none, none, none, none, recog, det, 'mapping ' ~ mapping_status|lower) -}}
+      {%- elif mapping is not mapping -%}
+        {{- _emit('MAPPING_UNAVAILABLE', false, identity, none, none, none, none, recog, det, 'mapping is not an object') -}}
+      {%- elif not schema_ok -%}
+        {{- _emit('MAPPING_UNAVAILABLE', false, identity, none, none, none, none, recog, det, 'unsupported/invalid schema_version') -}}
+      {%- elif identities is not mapping -%}
+        {{- _emit('MAPPING_UNAVAILABLE', false, identity, none, none, none, none, recog, det, 'identities is not an object') -}}
+      {#- ===== (6) identity absent from valid mapping -> IDENTITY_UNMAPPED ===== -#}
+      {%- elif identity not in identities -%}
+        {{- _emit('IDENTITY_UNMAPPED', false, identity, none, none, none, none, recog, det, 'identity not in mapping') -}}
+      {%- else -%}
+        {%- set entry = identities[identity] -%}
+        {#- ===== (7) matching entry malformed -> MAPPING_UNAVAILABLE ===== -#}
+        {%- if entry is not mapping -%}
+          {{- _emit('MAPPING_UNAVAILABLE', false, identity, none, none, none, none, recog, det, 'identity entry is not an object') -}}
+        {%- else -%}
+          {%- set enabled = (entry.enabled if 'enabled' in entry else none) -%}
+          {%- if enabled is not boolean -%}
+            {{- _emit('MAPPING_UNAVAILABLE', false, identity, none, none, none, none, recog, det, 'entry.enabled is not a boolean') -}}
+          {#- ===== (8) enabled exactly False -> IDENTITY_DISABLED (trusted null) ===== -#}
+          {%- elif enabled == false -%}
+            {{- _emit('IDENTITY_DISABLED', false, identity, none, none, none, false, recog, det, 'identity explicitly disabled') -}}
+          {%- else -%}
+            {#- enabled is True -> validate trusted fields before allowing known -#}
+            {%- set uuid = (entry.person_uuid if 'person_uuid' in entry else none) -%}
+            {%- set dname = (entry.display_name if 'display_name' in entry else none) -%}
+            {%- set rel = (entry.relationship if 'relationship' in entry else none) -%}
+            {%- set allowed = ['Family', 'Friend', 'Neighbor', 'Other Known'] -%}
+            {%- if _is_nonempty_str(uuid)|trim != '1' -%}
+              {{- _emit('MAPPING_UNAVAILABLE', false, identity, none, none, none, none, recog, det, 'entry.person_uuid invalid') -}}
+            {%- elif _is_nonempty_str(dname)|trim != '1' -%}
+              {{- _emit('MAPPING_UNAVAILABLE', false, identity, none, none, none, none, recog, det, 'entry.display_name invalid') -}}
+            {%- elif rel not in allowed -%}
+              {{- _emit('MAPPING_UNAVAILABLE', false, identity, none, none, none, none, recog, det, 'entry.relationship invalid') -}}
+            {#- ===== (9) fully valid -> IDENTITY_KNOWN ===== -#}
+            {%- else -%}
+              {{- _emit('IDENTITY_KNOWN', true, identity, dname, uuid, rel, true, recog, det, none) -}}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endif -%}
+{%- endmacro -%}
+
+{#- Serialize the normalized result as a JSON object string. Uses tojson so nulls, unicode,
+    booleans, and floats round-trip exactly for the isolated comparison harness. -#}
+{%- macro _emit(outcome, known, raw_identity, identity, person_uuid, relationship, enabled, recognition_confidence, detection_confidence, reason) -%}
+{{- {
+  'outcome': outcome,
+  'known': known,
+  'raw_identity': raw_identity,
+  'identity': identity,
+  'person_uuid': person_uuid,
+  'relationship': relationship,
+  'enabled': enabled,
+  'recognition_confidence': recognition_confidence,
+  'detection_confidence': detection_confidence,
+  'reason': reason
+} | tojson -}}
+{%- endmacro -%}

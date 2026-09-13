@@ -1,0 +1,30 @@
+# T034-C2.2 ISOLATED HA config — TEST FIXTURE ONLY. NOT the live HA config.
+# Live HA config lives at home-assistant/throwaway-config/ (dev) and the production Pi
+# (never touched here). This directory exists solely to (a) validate the HA `!include`
+# shape for the C1/C2 relationship mapping and (b) exercise the C2.2 Jinja normalization
+# macro through real HA config/template validation.
+#
+# No MQTT broker connection, no automations that act, no notifications, no Frigate/Ring.
+
+# --- INCLUDE SHAPE VALIDATION (section 11) --------------------------------------------
+# Load the synthetic relationship mapping as a template variable via !include. This is the
+# exact mechanism the runtime (C2.3+) will use to hand the mapping to the normalization
+# Jinja. Exposed as a template sensor attribute so `hass --script check_config` parses and
+# validates the include + the resulting object shape without any runtime service.
+template:
+  - sensor:
+      - name: "C2_2 Relationship Mapping Probe"
+        unique_id: c2_2_relationship_mapping_probe
+        # The include resolves the YAML file into a dict here at config load.
+        state: >-
+          {% set m = mapping %}
+          {{ 'LOADED' if (m is mapping and m.schema_version == 1) else 'INVALID' }}
+        attributes:
+          schema_version: "{{ mapping.schema_version | default('MISSING') }}"
+          identity_count: "{{ (mapping.identities | count) if (mapping is mapping and mapping.identities is mapping) else -1 }}"
+        # `mapping` is provided to this template's variables via the include below.
+        variables:
+          mapping: !include helpers/relationship_mapping.synthetic.yaml
+
+# Minimal required top-level keys so check_config is self-contained.
+automation: !include automations.yaml

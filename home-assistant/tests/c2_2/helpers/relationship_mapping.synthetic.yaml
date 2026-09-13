@@ -1,0 +1,62 @@
+# T034-C2.2 SYNTHETIC relationship mapping — ISOLATED TEST FIXTURE ONLY.
+# NOT a live mapping. NOT the C1-generated artifact. Synthetic identities only —
+# no real household identity, UUID, or relationship data.
+#
+# Schema mirrors the C1 exporter (enrollment-app/backend/app/tools/relationship_export.py:
+# build_document): `schema_version: 1` + `identities: {<frigate_identity_name>: {person_uuid,
+# display_name, relationship, enabled}}`. All string scalars double-quoted (as the C1 YAML
+# serializer emits) so boolean/numeric-looking keys like "true" stay strings.
+schema_version: 1
+identities:
+  # A. valid enabled Family identity
+  "Known_Person_A":
+    person_uuid: "00000000-0000-0000-0000-00000000000a"
+    display_name: "Known Person A"
+    relationship: "Family"
+    enabled: true
+  # B / C-disabled. disabled identity (Neighbor) — trusted metadata must stay null downstream
+  "Known_Person_B":
+    person_uuid: "00000000-0000-0000-0000-00000000000b"
+    display_name: "Known Person B"
+    relationship: "Neighbor"
+    enabled: false
+  # R. Unicode identity + display name — must be preserved verbatim
+  "José":
+    person_uuid: "00000000-0000-0000-0000-0000000000c3"
+    display_name: "José Árbol"
+    relationship: "Friend"
+    enabled: true
+  # Q. YAML-looking string key "true" — exact string lookup, never coerced to boolean
+  "true":
+    person_uuid: "00000000-0000-0000-0000-00000000c0de"
+    display_name: "Yes Person"
+    relationship: "Other Known"
+    enabled: true
+  # E. enabled entry with an INVALID relationship -> MAPPING_UNAVAILABLE (broken, not absent)
+  "Bad_Relationship":
+    person_uuid: "00000000-0000-0000-0000-0000000badre"
+    display_name: "Bad Rel"
+    relationship: "BFF"
+    enabled: true
+  # N. enabled is the WRONG TYPE (string, not bool) -> MAPPING_UNAVAILABLE
+  "Wrong_Enabled_Type":
+    person_uuid: "00000000-0000-0000-0000-000000wrongt"
+    display_name: "Wrong Enabled"
+    relationship: "Family"
+    enabled: "true"
+  # O. enabled entry MISSING person_uuid -> MAPPING_UNAVAILABLE
+  "Missing_UUID":
+    display_name: "No UUID"
+    relationship: "Family"
+    enabled: true
+  # P. enabled entry MISSING display_name -> MAPPING_UNAVAILABLE
+  "Missing_Display_Name":
+    person_uuid: "00000000-0000-0000-0000-000000nouuid"
+    relationship: "Family"
+    enabled: true
+  # T. DISABLED entry with malformed other metadata -> still IDENTITY_DISABLED, trusted null
+  "Disabled_Malformed":
+    relationship: "BFF"
+    enabled: false
+  # entry present but NOT an object -> MAPPING_UNAVAILABLE
+  "Not_An_Object": "just-a-string"
