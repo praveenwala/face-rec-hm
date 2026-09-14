@@ -16,6 +16,10 @@ Frigate/Ring change, no MQTT publish/subscribe.
 
 ## 1. Current verified production state (do not upgrade here)
 
+> **SUPERSEDED for CURRENT state** (2026-09-14): Mosquitto was subsequently installed and the HA
+> MQTT integration configured (PRE-B3-A deviation). This snapshot remains accurate as of MQTT-B2;
+> for current MQTT state see [mqtt-state-reconciliation.md](mqtt-state-reconciliation.md).
+
 - HA Core 2026.9.1 · HA OS 18.2 · Supervisor 2026.09.0 · machine `raspberrypi3-64`
 - config root `/homeassistant`; `/config` → `/homeassistant`
 - Mosquitto Broker add-on: **available, NOT installed**

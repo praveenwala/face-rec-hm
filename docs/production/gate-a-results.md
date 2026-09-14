@@ -58,6 +58,10 @@ additive only.
 
 ## MQTT / Frigate event transport (BLOCKED / UNVERIFIED)
 
+> **SUPERSEDED for CURRENT state** (2026-09-14): Mosquitto was subsequently installed and the HA
+> MQTT integration configured during PRE-B3-A. This section remains accurate **as of Gate A**;
+> for current MQTT state see [mqtt-state-reconciliation.md](mqtt-state-reconciliation.md).
+
 - Home Assistant **MQTT integration is not currently configured** on production
 - the official Mosquitto broker app is **available but not installed**
 - therefore `frigate/available` and `frigate/events` were **NOT freshly observed** from
