@@ -85,11 +85,43 @@ remains **open** until Frigate connects and `frigate/available` + `frigate/event
 
 ## 5. Backup state (hard gate)
 
-- `FULL_HA_BACKUP_TAKEN_BEFORE_BROKER_INSTALL = NO` (deviation)
-- `FULL_HA_BACKUP_OF_CURRENT_STATE_TAKEN = NO`
-- **Next required gate: PRE-B3-B — full HA backup of the current healthy MQTT-enabled state.**
-  No further production mutation (ACLs, Frigate config, mapping, automations) until it is taken
-  and verified.
+- `FULL_HA_BACKUP_TAKEN_BEFORE_BROKER_INSTALL = NO` (deviation — historical fact, unchanged)
+- `FULL_HA_BACKUP_OF_CURRENT_STATE_TAKEN = YES` — **PRE-B3-B completed & verified (2026-09-14)**;
+  see §5a below.
+
+### 5a. PRE-B3-B — Current-state HA backup (operator-executed; verified via HA UI)
+
+`PRE_B3_B_CURRENT_STATE_BACKUP = PASS` · `BACKUP_VERIFIED_COMPLETE = YES`.
+
+| Fact | Value |
+|---|---|
+| name | Automatic backup 2026.9.1 |
+| type | Automatic |
+| created | 2026-09-14 3:34 PM |
+| size | 19.42 MB |
+| encrypted | YES |
+| location(s) | 1 — This system |
+
+Contents (only what the HA restore/details UI directly showed):
+- Home Assistant: settings & history, version **2026.9.1**; SSL certificates included
+- Apps: **Mosquitto broker 7.1.1**; **Terminal & SSH 10.4.0**
+
+No restore was performed. **Post-backup health:** HA running, Mosquitto running,
+`HA_MQTT_STATUS_AFTER_BACKUP = ONLINE`; no restart performed.
+
+Post-backup MQTT roundtrip (temporary, non-retained): topic `homeassistant/test`, payload
+`hi`, QoS 0, retain **false** — received immediately. `MQTT_POST_BACKUP_PUBLISH = PASS` ·
+`MQTT_POST_BACKUP_SUBSCRIBE = PASS` · `MQTT_POST_BACKUP_ROUNDTRIP = PASS`. No retained state.
+
+### 5b. SECURITY — backup encryption key exposure (separate remediation gate)
+
+During operator interaction the backup **encryption/recovery key was accidentally exposed
+outside the HA UI**. The key is **not** recorded here or anywhere in the repo (no key, no
+substring, no derived credential, no screenshot containing it).
+
+- `BACKUP_ENCRYPTION_KEY_EXPOSURE_RECORDED = YES`
+- `BACKUP_KEY_ROTATION_REQUIRED = YES` — treated as a **separate security gate**; rotation is
+  NOT performed in this documentation phase. `SAFE_TO_ROTATE_BACKUP_KEY = NO` (until authorized).
 
 ## 6. Ring safety (unchanged)
 
