@@ -254,3 +254,98 @@ rm -rf .ha-venv __pycache__
 
 Tracked C2.3 assets (`c2_3_cases.py`, `test_c2_3_parity.py`) are static text and safe to
 leave in the repo; the `.ha-venv/` runtime is gitignored and disposable.
+
+---
+
+# T034-C2.4 — Real HA Full Configuration Validation
+
+**THIS VALIDATES AN ISOLATED HOME ASSISTANT FIXTURE ONLY. IT DOES NOT INSTALL OR MODIFY
+LIVE HOME ASSISTANT CONFIGURATION.** No live HA/MQTT/Frigate/Ring/DB, no real mapping.
+
+## Phase relationship
+
+- **C2.1** = Python semantic oracle (`bridge/identity_normalizer.py`)
+- **C2.2** = isolated HA/Jinja implementation (`templates/identity_normalization.jinja`)
+- **C2.3** = automated semantic parity (`test_c2_3_parity.py`)
+- **C2.4** = real Home Assistant **full configuration + template** validation (this section)
+
+## Purpose
+
+C2.4 is the final isolated validation gate: it proves the isolated HA configuration that
+contains the C2 normalization fixture is accepted by **real Home Assistant configuration
+loading/checking** and remains semantically valid — stronger than C2.2's template-only
+check, because the whole config directory is loaded and validated.
+
+## Environment
+
+- Home Assistant: 2024.12.5
+- Python: 3.13.0
+- Jinja2: 3.1.4
+
+## Setup (throwaway, gitignored, disposable)
+
+```bash
+cd home-assistant/tests/c2_2
+python3 -m venv .ha-venv
+source .ha-venv/bin/activate
+pip install "homeassistant==2024.12.5" pytest
+```
+
+## Validation commands
+
+```bash
+# 1) REAL HA full configuration check (exact supported command for HA 2024.12.5).
+#    -i all dumps the parsed config; -f lists the used files.
+hass --script check_config -c . -i all -f
+#    Expected: exit 0, "Successful config (all)", NO ERROR, NO WARNING; the mapping include
+#    file is listed under "yaml files (used)".
+
+# 2) Full-include type validation via HA's own YAML loader (the real !include path):
+python - <<'PY'
+from homeassistant.util.yaml import load_yaml
+m = load_yaml("helpers/relationship_mapping.synthetic.yaml")
+assert isinstance(m["schema_version"], int) and not isinstance(m["schema_version"], bool) and m["schema_version"] == 1
+assert hasattr(m["identities"], "keys")                      # identities is a mapping
+assert m["identities"]["Known_Person_A"]["enabled"] is True  # real booleans preserved
+assert "true" in m["identities"] and "José" in m["identities"]  # string key + Unicode intact
+print("include full-config validation: OK")
+PY
+
+# 3) Representative renders through the real HA Template engine using the config-loaded
+#    mapping (proves the loaded path still renders correctly): see the C2.4 report / the
+#    C2.2 harness (run_c2_2_cases.py) and C2.3 parity suite (test_c2_3_parity.py).
+python run_c2_2_cases.py           # 20/20 PASS, 0 drift
+python -m pytest test_c2_3_parity.py   # 42 passed, EXACT parity
+```
+
+## Expected PASS
+
+- `hass --script check_config` → exit 0, "Successful config (all)", no ERROR, no WARNING
+- include loads under full config semantics: schema_version int 1, identities a mapping,
+  `enabled` booleans, `"true"` key a string, Unicode preserved
+- representative renders A–I produce the correct outcomes (KNOWN/UNKNOWN/DISABLED/UNMAPPED/
+  MAPPING_UNAVAILABLE/RECOGNITION_FAILURE/IGNORED_NON_PERSON) with score separation intact
+- reference parity remains EXACT (C2.3 42 passed)
+
+## Warnings policy
+
+Any HA ERROR relating to configuration, include, Jinja, automation schema, or template
+evaluation FAILS C2.4. Warnings must be reviewed and explained; deprecated/soon-invalid
+syntax warnings are not ignored. (Current result: no ERROR and no WARNING.)
+
+## Network / secrets
+
+The fixture declares no `default_config`, no MQTT broker, no `!secret`, and requires no
+`secrets.yaml`; config check runs fully offline. `LIVE_NETWORK_DEPENDENCY = NONE`.
+
+## Cleanup
+
+```bash
+cd home-assistant/tests/c2_2
+deactivate 2>/dev/null || true
+rm -rf .ha-venv __pycache__ .storage *.db *.db-* home-assistant.log home-assistant.log.* .HA_VERSION tts
+```
+
+Removes the throwaway HA runtime and any ephemeral runtime files a config check may create.
+Reproducible source (config fixture, mapping, events, jinja, harness, cases, docs) is left
+intact.
