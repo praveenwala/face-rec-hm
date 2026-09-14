@@ -120,8 +120,27 @@ outside the HA UI**. The key is **not** recorded here or anywhere in the repo (n
 substring, no derived credential, no screenshot containing it).
 
 - `BACKUP_ENCRYPTION_KEY_EXPOSURE_RECORDED = YES`
-- `BACKUP_KEY_ROTATION_REQUIRED = YES` — treated as a **separate security gate**; rotation is
-  NOT performed in this documentation phase. `SAFE_TO_ROTATE_BACKUP_KEY = NO` (until authorized).
+- `BACKUP_KEY_ROTATION_REQUIRED = YES`
+
+**REMEDIATION COMPLETED & VERIFIED (2026-09-14, operator-executed via HA UI):**
+`BACKUP_KEY_REMEDIATION_EXECUTION = PASS` · `BACKUP_KEY_CHANGE_COMPLETED = YES`.
+
+- The backup encryption key was **changed** (HA UI). Per HA 2026.9.x semantics, the new key
+  applies to **future** backups only; the previously-created backup stayed tied to the old
+  (exposed) key — so it was **deleted** after a new protected backup was verified.
+- **New backup (under the new key):** name `Automatic backup 2026.9.1`; created 2026-09-14
+  4:20 PM; size **19.58 MB**; encrypted YES; contents (UI-verified): Home Assistant + settings
+  & history (2026.9.1) + SSL certificates; **Mosquitto broker 7.1.1**; **Terminal & SSH 10.4.0**.
+  `NEW_BACKUP_CREATED = YES` · `NEW_BACKUP_VERIFIED_COMPLETE = YES` · `NEW_BACKUP_STILL_PRESENT = YES`.
+- **Old exposed-key backup deleted:** the prior `Automatic backup 2026.9.1` (**19.42 MB**,
+  created before remediation) was deleted **after** the new backup was verified.
+  `OLD_EXPOSED_KEY_BACKUP_DELETED = YES`. (Records only the local deletion; makes no claim about
+  copies that may exist elsewhere.)
+- **Post-change health:** HA running; local MQTT roundtrip re-verified — topic `homeassistant/test`,
+  payload `hi`, QoS 0, retain **false** — received immediately.
+  `MQTT_POST_KEY_CHANGE_PUBLISH/SUBSCRIBE/ROUNDTRIP = PASS`; no retained state.
+- Keys (old or new) are **not** recorded anywhere in the repo. `BACKUP_KEY_PRESENT_IN_REPO = NO`.
+  `SAFE_TO_ROTATE_BACKUP_KEY` gate is now satisfied/closed.
 
 ## 6. Ring safety (unchanged)
 
