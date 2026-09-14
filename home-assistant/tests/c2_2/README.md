@@ -149,3 +149,108 @@ This fixture performs **no** live integration. It does not connect to MQTT, does
 Frigate or Ring, does not run automations, does not enroll anyone, and does not modify any
 live/dev/production Home Assistant configuration. Runtime wiring is deferred to a later phase
 (C2.3+) and is explicitly out of scope for C2.2.
+
+---
+
+# T034-C2.3 — Automated Parity Proof
+
+**THIS DOES NOT TEST OR MODIFY LIVE HOME ASSISTANT.** Same isolation guarantees as C2.2.
+
+## C2.1 / C2.2 / C2.3 relationship
+
+- **C2.1** = the Python semantic **oracle** (`bridge/identity_normalizer.py`): the ratified
+  contract source of truth.
+- **C2.2** = the **HA/Jinja implementation** (`templates/identity_normalization.jinja`),
+  validated against real Home Assistant config/template behavior.
+- **C2.3** = the **automated parity proof**: one canonical synthetic case matrix run through
+  BOTH implementations, asserting semantically identical normalized results.
+
+## Purpose
+
+`test_c2_3_parity.py` proves the Python oracle and the C2.2 HA/Jinja macro produce identical
+normalized results for the same synthetic inputs. It does **not** re-implement the rules — it
+imports the committed Jinja macro and renders it through the real HA `Template` engine, and
+imports the real oracle + T034-A parser. Both paths start from the SAME raw
+`frigate/events`-style payload:
+
+```
+Python : raw event -> bridge.frigate_event_parser.parse_event() -> normalize_identity()
+HA/Jinja: raw event -> normalize(ev, mapping, mapping_status)  (real HA Template engine)
+```
+
+## Case source
+
+A single canonical matrix in `c2_3_cases.py` (`CASES` + `SEQUENCES` + shared `BASE_MAPPING`
+and mapping variants). Both parity paths consume the same table — there are no separately
+authored Python/Jinja case definitions.
+
+## Comparison contract
+
+All 10 normalized fields are compared **exactly**: `outcome, known, raw_identity, identity,
+person_uuid, relationship, enabled, recognition_confidence, detection_confidence, reason`.
+Reason strings are byte-for-byte identical between the two implementations, so parity uses
+**exact reason matching** (no `reason_code` shim needed). The only representation-level
+normalization applied is numeric equality (`math.isclose`, abs_tol 1e-9) and JSON-null ==
+Python-None; no semantic difference (wrong outcome/bool/identity/score/etc.) is ever
+normalized away.
+
+## NaN / infinity (cases U/V)
+
+A real MQTT `frigate/events` payload is JSON, which cannot carry `NaN`/`Infinity`, so the
+HA/Jinja runtime can never receive them from a real event. `test_score_boundary_nan_inf`
+therefore tests at the real ingestion boundary: (1) the Python oracle fails closed on
+`NaN`/`±inf` supplied via a constructed `FrigateEventParse` → `RECOGNITION_FAILURE`; and
+(2) a JSON string like `"NaN"`/`"Infinity"` is a string (not a number) and both
+implementations reject it identically → `RECOGNITION_FAILURE`. No NaN/inf parity evidence is
+fabricated for a path that cannot occur.
+
+## Sequential state-leakage (cases AJ/AK/AL + disabled→unmapped)
+
+`test_sequential_isolation` renders each sequence in ONE process/HA instance and asserts
+per-step parity plus no stale metadata leaking between renders:
+KNOWN A→UNKNOWN, KNOWN A→KNOWN B, RECOGNITION_FAILURE→KNOWN A, DISABLED→UNMAPPED.
+
+## Environment
+
+- Home Assistant: 2024.12.5 (matches the project image)
+- Python: 3.13.0
+- Jinja2: 3.1.4
+- pytest: 9.1.1
+
+## Commands
+
+```bash
+cd home-assistant/tests/c2_2
+
+# one-time: throwaway venv with the exact HA version + pytest (gitignored; disposable)
+python3 -m venv .ha-venv
+source .ha-venv/bin/activate
+pip install "homeassistant==2024.12.5" pytest
+
+# run the automated parity proof (expect: 42 passed)
+python -m pytest test_c2_3_parity.py -v
+```
+
+## Expected result
+
+`42 passed` — 34 matrix cases (A–T, W–Z, AA–AI, AM), the NaN/inf boundary test (U/V), 4
+sequential-isolation sequences, and 3 explicit invariant tests (score separation, no
+score substitution, absent-vs-broken). Any real parity gap fails the corresponding test.
+
+## Mismatch interpretation
+
+On failure the assertion prints the case id/category, the full Python result, the full HA
+result, and the exact differing fields (`field: python=... ha=...`), so a mismatch is
+diagnosable without rerunning templates by hand. A mismatch is a **parity defect** to be
+resolved on the implementation side — never by weakening the comparison.
+
+## Cleanup
+
+```bash
+cd home-assistant/tests/c2_2
+deactivate 2>/dev/null || true
+rm -rf .ha-venv __pycache__
+```
+
+Tracked C2.3 assets (`c2_3_cases.py`, `test_c2_3_parity.py`) are static text and safe to
+leave in the repo; the `.ha-venv/` runtime is gitignored and disposable.
