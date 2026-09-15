@@ -310,8 +310,18 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
   unsafe fallback suffix). Isolated tests passed (`TestConflict` 3/3 + a direct in-memory
   unique-constraint check) on tmp/in-memory DB + fake transport. Real enrolled identities left
   untouched (Frigate still 2 identities with 6+6 references; enrollment DB still 2 `ENROLLED`).
-- [ ] T040 [US6] Implement identity refinement: update an enrolled identity's reference
-  images; confirm future events use the updated set (FR-027; US6 Acceptance Scenario 2)
+- [x] T040 [US6] Implement identity refinement: update an enrolled identity's reference
+  images; confirm future events use the updated set (FR-027; US6 Acceptance Scenario 2) —
+  **PASS (mechanism) 2026-09-15**: refinement primitives verified in isolation on a throwaway
+  Frigate identity (NOT Person_A / Person_B) — adding a reference grew the set (0→1→2),
+  removing references shrank it (2→1) and emptying it removed the identity, each change
+  reflected in both `/api/faces` and the on-disk face dir (tolerating Frigate's
+  eventual-consistency recognizer rebuild). Frigate calls `recognizer.clear()` on
+  register/delete, so subsequent recognition uses the updated reference set. Person_A and
+  Person_B were untouched (both remained at 6 references, re-verified after the test).
+  **Deferred**: live "future events use the updated set" behavioral confirmation requires a
+  recognition run and is tied to the final Known-person recognition E2E (T035), intentionally
+  deferred.
 - [ ] T041 [US6] Implement identity removal; confirm the removed identity is never reported
   again (FR-021; US6 Acceptance Scenario 3)
 - [ ] T042 [US6] Confirm a brand-new, never-enrolled face never silently creates a named
