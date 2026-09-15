@@ -333,8 +333,15 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
   was intentionally NOT exercised (would require the gate ON and mutating a real person).
   **Deferred**: live recognition non-report confirmation is tied to the final Known-person
   recognition E2E (T035), intentionally deferred.
-- [ ] T042 [US6] Confirm a brand-new, never-enrolled face never silently creates a named
-  identity (FR-022; US6 Acceptance Scenario 4)
+- [x] T042 [US6] Confirm a brand-new, never-enrolled face never silently creates a named
+  identity (FR-022; US6 Acceptance Scenario 4) — **PASS 2026-09-15**: a brand-new,
+  never-enrolled face (isolated test frame) submitted to Frigate's non-persisting
+  `POST /api/faces/recognize` created no named identity — the non-train identity count
+  remained 2 → 2 and no new face dir appeared. Unknown faces on the live recognition path are
+  written to `train/` only (as `unknown-<score>`), never as an identity. Creating a named
+  identity requires the explicit, feature-gated enroll/create path; the enrollment gate
+  remained OFF (`/api/frigate/status` → 501) throughout. Person_A and Person_B unchanged
+  (both 6 references). No persistent identity created; temporary probe media cleaned up.
 
 **Checkpoint**: Enrolled identities are correctly recognized; unknowns and spoofing attempts
 are correctly rejected; the Identity Library can be safely managed.
