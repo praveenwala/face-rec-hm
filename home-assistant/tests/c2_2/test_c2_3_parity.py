@@ -1,7 +1,7 @@
 """T034-C2.3 — automated PARITY suite (ISOLATED TEST ONLY).
 
 Proves the Python reference oracle (bridge/identity_normalizer.py, the C2 contract source
-of truth) and the C2.2 HA/Jinja fixture (templates/identity_normalization.jinja) produce
+of truth) and the C2.2 HA/Jinja fixture (custom_templates/identity_normalization.jinja) produce
 SEMANTICALLY IDENTICAL normalized results for one canonical synthetic case matrix
 (c2_3_cases.py). The Jinja is exercised through the REAL Home Assistant Template engine —
 NOT a generic Jinja2 renderer, and NOT a re-implemented copy of the rules.
@@ -31,7 +31,7 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[2]
-MACRO = HERE / "templates" / "identity_normalization.jinja"
+MACRO = HERE / "custom_templates" / "identity_normalization.jinja"
 
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(HERE))
@@ -235,6 +235,33 @@ def test_missing_score_no_substitution(ha):
     assert py["outcome"] == "RECOGNITION_FAILURE"
     assert py["recognition_confidence"] is None and py["detection_confidence"] == 0.84
     assert not diff_fields(py, hj)  # HA never substitutes detection for recognition either
+
+
+def test_runtime_automation_contract():
+    """The isolated runtime fixture only accepts final person events and deduplicates by ID."""
+    automation = (HERE / "automations.yaml").read_text(encoding="utf-8")
+    assert "topic: frigate/events" in automation
+    assert "== 'end'" in automation
+    assert "== 'person'" in automation
+    assert "input_text.frigate_last_processed_event_id" in automation
+    assert "!= trigger.payload_json.after.id" in automation
+    assert "event_id: \"{{ trigger.payload_json.after.id }}\"" in automation
+    for field in FIELDS:
+        assert f"{field}:" in automation
+
+
+def test_end_person_unknown_is_safe(ha):
+    """A final person event with null identity remains Unknown, never Known/fabricated."""
+    ev = {"type": "end", "before": {}, "after": {
+        "id": "end-unknown", "camera": "front_door", "label": "person",
+        "sub_label": None, "score": 0.81,
+    }}
+    result = ha.render(ev, json.loads(json.dumps(cases.BASE_MAPPING)), MappingStatus.LOADED)
+    assert result["outcome"] == "IDENTITY_UNKNOWN"
+    assert result["known"] is False
+    assert result["identity"] is None
+    assert result["recognition_confidence"] is None
+    assert result["detection_confidence"] == 0.81
 
 
 def test_absent_vs_broken_distinguished(ha):

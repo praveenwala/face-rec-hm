@@ -1,2 +1,49 @@
-# T034-C2.2 ISOLATED HA config — no live automations. Intentionally empty.
-[]
+# T034-C2.5 — ISOLATED MQTT event-integration fixture only.  It is never deployed
+# from this repository.  No MQTT broker is configured here, so this cannot contact
+# Frigate, Ring, Mosquitto, or production Home Assistant.
+- id: frigate_person_end_normalization
+  alias: "Frigate person end normalization (isolated fixture)"
+  mode: queued
+  max: 10
+  triggers:
+    - trigger: mqtt
+      topic: frigate/events
+  conditions:
+    - condition: template
+      value_template: >-
+        {{ trigger.payload_json.type | default(none) == 'end'
+           and trigger.payload_json.after is mapping
+           and trigger.payload_json.after.label | default(none) == 'person'
+           and trigger.payload_json.after.id | default('') is string
+           and trigger.payload_json.after.id | trim != '' }}
+    - condition: template
+      value_template: >-
+        {{ states('input_text.frigate_last_processed_event_id')
+           != trigger.payload_json.after.id }}
+  variables:
+    relationship_mapping: !include helpers/relationship_mapping.synthetic.yaml
+    normalized_json: >-
+      {% from 'identity_normalization.jinja' import normalize %}
+      {{ normalize(trigger.payload_json, relationship_mapping, 'LOADED') }}
+  actions:
+    # Record the lifecycle correlation key before emitting the internal event.  The
+    # end-only filter plus this persistent key prevents re-delivery of an end event
+    # from being processed twice.
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.frigate_last_processed_event_id
+      data:
+        value: "{{ trigger.payload_json.after.id }}"
+    - event: frigate_person_normalized
+      event_data:
+        event_id: "{{ trigger.payload_json.after.id }}"
+        outcome: "{{ (normalized_json | from_json).outcome }}"
+        known: "{{ (normalized_json | from_json).known }}"
+        raw_identity: "{{ (normalized_json | from_json).raw_identity }}"
+        identity: "{{ (normalized_json | from_json).identity }}"
+        person_uuid: "{{ (normalized_json | from_json).person_uuid }}"
+        relationship: "{{ (normalized_json | from_json).relationship }}"
+        enabled: "{{ (normalized_json | from_json).enabled }}"
+        recognition_confidence: "{{ (normalized_json | from_json).recognition_confidence }}"
+        detection_confidence: "{{ (normalized_json | from_json).detection_confidence }}"
+        reason: "{{ (normalized_json | from_json).reason }}"

@@ -27,4 +27,9 @@ template:
           mapping: !include helpers/relationship_mapping.synthetic.yaml
 
 # Minimal required top-level keys so check_config is self-contained.
+input_text:
+  frigate_last_processed_event_id:
+    name: "Frigate last processed event ID"
+    max: 128
+
 automation: !include automations.yaml

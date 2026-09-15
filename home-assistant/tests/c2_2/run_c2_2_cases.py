@@ -24,7 +24,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[2]  # home-assistant/tests/c2_2 -> repo root
-MACRO = HERE / "templates" / "identity_normalization.jinja"
+MACRO = HERE / "custom_templates" / "identity_normalization.jinja"
 MAPPING_YAML = HERE / "helpers" / "relationship_mapping.synthetic.yaml"
 EVENTS = HERE / "fixtures" / "synthetic_events.json"
 
