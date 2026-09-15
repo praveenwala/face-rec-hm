@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_session, get_settings, parse_uuid
 from app.config import Settings
 from app.services.enrollment_service import EnrollmentService
+from app.services.frigate_http_transport import HttpxFrigateTransport
 from app.services.frigate_service import FrigateEnrollmentService
 
 _LOG = logging.getLogger(__name__)
@@ -37,14 +38,21 @@ def _enrollment_service(
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> EnrollmentService:
-    # No real Frigate transport is wired at the API layer yet: while the feature flag
-    # is OFF the service refuses before any transport use, and a real transport will be
-    # injected here when the feature is enabled in a controlled environment.
-    return EnrollmentService(session=session, settings=settings)
+    return EnrollmentService(
+        session=session,
+        settings=settings,
+        frigate=FrigateEnrollmentService(
+            settings=settings,
+            transport=HttpxFrigateTransport(settings.frigate),
+        ),
+    )
 
 
 def _frigate_service(settings: Settings = Depends(get_settings)) -> FrigateEnrollmentService:
-    return FrigateEnrollmentService(settings=settings, transport=None)
+    return FrigateEnrollmentService(
+        settings=settings,
+        transport=HttpxFrigateTransport(settings.frigate),
+    )
 
 
 @router.get("/frigate/status")
