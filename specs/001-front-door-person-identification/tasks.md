@@ -417,8 +417,11 @@ instance; the feature meets the constitution's Definition of Done.
 
 - [ ] T056 [P] Write `docs/architecture.md` documenting the final pipeline (constitution
   X.1)
-- [ ] T057 [P] Document pinned dependency versions (Frigate, Mosquitto, go2rtc, Home
-  Assistant) per constitution VI.3
+- [x] T057 [P] Document pinned dependency versions (Frigate, Mosquitto, go2rtc, Home
+  Assistant) per constitution VI.3 — **PASS 2026-09-15**: consolidated pin record at
+  `docs/dependency-versions.md` (Frigate 0.17.2, Mosquitto 2.0.18, go2rtc 1.9.10 bundled in
+  Frigate [runtime-verified], Home Assistant 2024.12.5, ring-mqtt 5.9.3; + Feature 002 base
+  images). Each version cited to its source-of-truth (compose/config/runtime); none guessed.
 - [ ] T058 Re-run `quickstart.md` end-to-end as a final regression check
 - [ ] T059 [P] Confirm SC-012: for every reported identity result, the homeowner can trace
   which camera event produced it and its status (Known/Unknown/Unavailable/Failed)
