@@ -286,8 +286,12 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
     documented in validation-report.md T033 section; production must plan retention/
     cleanup for unknown-face crops (constitution II.5). Pre-enrollment this path is
     unreachable (empty library short-circuit).
-- [ ] T034 [US6] Enroll the first Known Identity from the approved reference photos (stored
-  outside the repo per research.md #6) (FR-003)
+- [x] T034 [US6] Enroll the first Known Identity from the approved reference photos (stored
+  outside the repo per research.md #6) (FR-003) — **COMPLETE 2026-09-15**: two identities
+  enrolled via the Feature 002 enrollment workflow + Frigate native face API (6 references
+  each). Verified in runtime: Frigate `/api/faces` reports 2 registered identities and the
+  enrollment-app DB shows 2 people in `ENROLLED` status. Reference photos remain outside the
+  repo (gitignored). (Recognition-match acceptance is T035, intentionally deferred.)
 - [ ] T035 [US2] Test: the enrolled person's clip produces `frigate/events` with `sub_label`
   matching the enrolled name at/above the confidence policy (US2 Acceptance Scenario 1;
   SC-003) (depends on: T033, T034)
@@ -297,8 +301,15 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
   that identity (US2 Acceptance Scenario 3) (depends on: T035)
 - [ ] T038 [US2] Test: a printed photo/on-screen image of the enrolled person resolves to
   `Unknown`, not `Known` (FR-029; SC-013) (depends on: T035)
-- [ ] T039 [US2] Enforce unique identity names at enrollment time; test that a duplicate-name
-  enrollment is rejected or requires disambiguation (FR-031) (depends on: T034)
+- [x] T039 [US2] Enforce unique identity names at enrollment time; test that a duplicate-name
+  enrollment is rejected or requires disambiguation (FR-031) (depends on: T034) —
+  **PASS 2026-09-15**: enforcement verified at three layers — DB `UNIQUE(frigate_identity_name)`
+  rejects a duplicate (`IntegrityError`) while a distinct name is accepted; service-level
+  collision handling confirmed (local-only collisions deterministically disambiguated by
+  suffix, e.g. `Test_Person_2`; live Frigate collision raises `IdentityConflictError` with no
+  unsafe fallback suffix). Isolated tests passed (`TestConflict` 3/3 + a direct in-memory
+  unique-constraint check) on tmp/in-memory DB + fake transport. Real enrolled identities left
+  untouched (Frigate still 2 identities with 6+6 references; enrollment DB still 2 `ENROLLED`).
 - [ ] T040 [US6] Implement identity refinement: update an enrolled identity's reference
   images; confirm future events use the updated set (FR-027; US6 Acceptance Scenario 2)
 - [ ] T041 [US6] Implement identity removal; confirm the removed identity is never reported
