@@ -1,0 +1,7 @@
+# Production include fragment. Add to production configuration.yaml as:
+#   input_text: !include helpers/frigate_event_integration_helpers.yaml
+# This durable, YAML-defined helper makes end-event delivery idempotent without
+# relying on an untracked UI-created helper.
+frigate_last_processed_event_id:
+  name: "Frigate last processed event ID"
+  max: 128

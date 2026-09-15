@@ -239,15 +239,21 @@ def test_missing_score_no_substitution(ha):
 
 def test_runtime_automation_contract():
     """The isolated runtime fixture only accepts final person events and deduplicates by ID."""
-    automation = (HERE / "automations.yaml").read_text(encoding="utf-8")
+    automation = (REPO_ROOT / "home-assistant" / "automations" / "frigate_person_end_normalization.yaml").read_text(encoding="utf-8")
     assert "topic: frigate/events" in automation
     assert "== 'end'" in automation
     assert "== 'person'" in automation
     assert "input_text.frigate_last_processed_event_id" in automation
     assert "!= trigger.payload_json.after.id" in automation
+    assert "helpers/relationship_mapping.generated.yaml" in automation
+    assert "{% from 'identity_normalization.jinja' import normalize %}" in automation
     assert "event_id: \"{{ trigger.payload_json.after.id }}\"" in automation
     for field in FIELDS:
         assert f"{field}:" in automation
+
+    helper = (REPO_ROOT / "home-assistant" / "helpers" / "frigate_event_integration_helpers.yaml").read_text(encoding="utf-8")
+    assert "frigate_last_processed_event_id:" in helper
+    assert "max: 128" in helper
 
 
 def test_end_person_unknown_is_safe(ha):
