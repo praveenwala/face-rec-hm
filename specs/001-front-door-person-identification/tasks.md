@@ -322,8 +322,17 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
   **Deferred**: live "future events use the updated set" behavioral confirmation requires a
   recognition run and is tied to the final Known-person recognition E2E (T035), intentionally
   deferred.
-- [ ] T041 [US6] Implement identity removal; confirm the removed identity is never reported
-  again (FR-021; US6 Acceptance Scenario 3)
+- [x] T041 [US6] Implement identity removal; confirm the removed identity is never reported
+  again (FR-021; US6 Acceptance Scenario 3) — **PASS (Frigate-side) 2026-09-15**: identity
+  removal verified in isolation on a throwaway Frigate identity (NOT Person_A / Person_B) —
+  seeded with 2 references then fully deleted; the identity became absent from both
+  `/api/faces` and the on-disk face dir with 0 references remaining, and Frigate rebuilds the
+  recognizer (`recognizer.clear()`) on delete so it has no embeddings to match — i.e. it can
+  never be reported again. Person_A and Person_B remained unchanged (both 6 references,
+  re-verified). The enrollment-app `remove_enrollment` path against a real enrolled identity
+  was intentionally NOT exercised (would require the gate ON and mutating a real person).
+  **Deferred**: live recognition non-report confirmation is tied to the final Known-person
+  recognition E2E (T035), intentionally deferred.
 - [ ] T042 [US6] Confirm a brand-new, never-enrolled face never silently creates a named
   identity (FR-022; US6 Acceptance Scenario 4)
 
