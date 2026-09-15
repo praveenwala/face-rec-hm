@@ -90,3 +90,10 @@ enrollment-app/frontend/dist/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.private/
+
+# Session runtime artifacts — NEVER commit (DB backups/quarantine contain frigate.db files;
+# reference backups contain biometric face crops; .freebuff is local tooling state).
+frigate/backups/
+frigate/quarantine/
+.freebuff/

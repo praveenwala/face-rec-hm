@@ -550,3 +550,35 @@ None. Non-blocking observations:
 - The app-owned detector cache means tests need the model fetched once
   (`scripts/fetch_models.sh`) — detection-dependent tests skip cleanly with an explicit
   message when it is absent, and uploads still work (PENDING + `analysis_error`).
+---
+
+## Checkpoint — 2026-09-15 (Person_B enrollment + recognition validation)
+
+State verified read-only at checkpoint time; no runtime recognition/enrollment mutated while writing this.
+
+- **Frigate**: healthy; database rebuilt from clean schema after a `database disk image is
+  malformed` corruption; `PRAGMA integrity_check = ok`. The corrupt DB trio was backed up and
+  quarantined (both retained outside version control).
+- **Person_A**: 6 references, intact and unchanged throughout.
+- **Person_B**: `ENROLLED` with 6 references (5 enrolled via the enrollment-app workflow + 1
+  Frigate-native `train/` crop added via the native classify API).
+- **Person_B recognition**: individual face-recognition attempts reached a peak score of 0.98
+  against a real Ring clip (baseline before the native reference was 0.79); multi-pass run
+  produced attempts ≥ 0.8 and ≥ 0.9. However, a stable event `sub_label` was NOT assigned.
+- **Root cause of no sub_label** (verified against Frigate 0.17.2 `FaceRealTimeProcessor`):
+  recognition is aggregated per person-track via a capped area/score-weighted average that
+  excludes all `unknown` (≤ `unknown_score`) attempts; assignment requires ≥ `min_faces`
+  non-unknown same-name attempts within one track and a weighted average ≥
+  `recognition_threshold`, before the track expires / `MAX_FACE_ATTEMPTS`. The available clip
+  produced only sparse high-scoring frames scattered across short tracks, so no single track's
+  weighted average crossed threshold. This is a track-consistency / source-footage limitation,
+  not a reference-quality, threshold, or config problem.
+- **Thresholds**: unchanged (`unknown_score` 0.8, `recognition_threshold` 0.9, `min_faces`
+  default). **Enrollment gate**: OFF. **HA / MQTT / Ring**: unchanged.
+
+### Final Known-person end-to-end status = PENDING
+
+A live sub_label assignment on a correlated Front Door person event has NOT yet been observed.
+Next validation step (deferred to end): run a sustained close-face Person_B clip so one person
+track accumulates enough > `unknown_score` frames to average ≥ `recognition_threshold`. No
+threshold/config/reference change is required to attempt this.
