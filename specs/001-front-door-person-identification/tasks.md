@@ -346,11 +346,32 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
 **Checkpoint**: Enrolled identities are correctly recognized; unknowns and spoofing attempts
 are correctly rejected; the Identity Library can be safely managed.
 
+> **Phase 5 status — DEFERRED GATE (recorded 2026-09-15).** T034 and the identity-management
+> tasks T039–T042 are complete (see per-task notes). **T035–T038 are intentionally deferred
+> to final validation**: they require sustained Known-person recognition footage (one person
+> track accumulating enough > `unknown_score` frames to weight-average ≥ `recognition_threshold`),
+> which is not currently available. Individual recognition of the enrolled test person has been
+> observed as high as 0.98 per attempt, but a stable event `sub_label` has not yet been
+> assigned (verified root cause: per-track weighted-average consistency in Frigate 0.17.2, not
+> a threshold/config/reference defect). **The Phase 5 checkpoint is therefore NOT cleared**, so
+> Phase 6 remains gated. No thresholds/config/enrollment were changed to force a result.
+
 ---
 
 ## Phase 6: Constitution Phase 4 — HA Intelligence (User Story 3 + User Story 4 + User Story 5 full)
 
 **⛔ BLOCKED** until the Phase 5 checkpoint passes.
+
+> **Phase 6 status (recorded 2026-09-15).** The relationship-enrichment logic for T043–T046
+> is IMPLEMENTED and VALIDATED IN ISOLATION (the HA-native identity-normalization macro
+> `home-assistant/tests/c2_2/custom_templates/identity_normalization.jinja` + the production
+> automation `home-assistant/automations/frigate_person_end_normalization.yaml` emit
+> `relationship` on a `frigate_person_normalized` event; parity proven against the reference
+> oracle `bridge/identity_normalizer.py` via `home-assistant/tests/c2_2/test_c2_3_parity.py`).
+> **Live confirmation on a real recognized event remains pending T035.** T047–T055
+> (notifications, per-person cooldown, multi-person merge, generic-fallback notification,
+> real-production-HA wiring, full failure-isolation, latency) are NOT started — they stay
+> gated behind the Phase 5 checkpoint per Article V.1. None of T035–T055 is marked complete.
 
 **Goal**: Recognized identities carry relationship context, notifications are useful and
 rate-limited, and failure isolation is proven against the **real** production Home Assistant
