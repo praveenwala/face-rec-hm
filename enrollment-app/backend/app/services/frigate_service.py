@@ -24,9 +24,11 @@ whose responses match the 0.17.2 contract. No real Frigate mutation occurs in te
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from app.config import Settings
@@ -272,14 +274,85 @@ class FrigateEnrollmentService:
         return body
 
     def remove_identity(self, name: str, image_ids: list[str] | None = None) -> dict[str, Any]:
-        """POST /api/faces/{name}/delete with the full id list (enumerate first)."""
+        """POST /api/faces/{name}/delete with the full id list (enumerate first).
+
+        Also purges that identity's leftover attempt crops in `faces/train/` (see
+        ``_purge_identity_train_artifacts``). This closes the removal defect found during
+        T035: Frigate's reference delete does NOT remove the identity-named crops already
+        saved under `faces/train/`, so on a recognizer rebuild those crops reintroduced the
+        deleted identity. Train cleanup is identity-scoped and best-effort — it never raises
+        and never touches other identities' or `unknown` crops.
+        """
         self._require_enabled("remove_identity")
         ids = image_ids
         if ids is None:
             identities = self.list_identities()
             ids = list(identities.get(name, []))
         status, body = self._call("POST", f"/api/faces/{name}/delete", json={"ids": ids})
-        return self._raise_for_status(status, body, operation="remove_identity")
+        result = self._raise_for_status(status, body, operation="remove_identity")
+        # Best-effort identity-scoped train cleanup AFTER the reference delete succeeds.
+        purged = self._purge_identity_train_artifacts(name)
+        if isinstance(result, dict):
+            result = {**result, "train_artifacts_purged": purged}
+        return result
+
+    # ---- identity-scoped train-crop cleanup (removal defect fix) ----------------
+
+    @staticmethod
+    def _train_crop_identity(filename: str) -> str | None:
+        """Return the identity name encoded in a Frigate train-crop filename, or None.
+
+        Frigate 0.17.2 writes attempts as ``<start>-<trackid>-<ts>-<name>-<score>.webp``
+        (``write_face_attempt``), where ``<name>`` is the classified identity with any ``-``
+        replaced by ``_`` (so ``-`` reliably separates fields). The identity is therefore the
+        second-to-last ``-``-separated field of the stem. ``unknown`` is a valid name here and
+        is treated like any other — an ``unknown`` crop is only matched if the removed identity
+        is literally ``unknown`` (it never is for a real identity).
+        """
+        if not filename.endswith(".webp"):
+            return None
+        stem = filename[: -len(".webp")]
+        parts = stem.split("-")
+        if len(parts) < 5:
+            return None  # not the expected attempt-crop shape → never matched
+        return parts[-2]
+
+    def _purge_identity_train_artifacts(self, name: str) -> int:
+        """Delete ONLY the removed identity's crops from ``faces/train/``. Best-effort.
+
+        Matches Frigate's train-crop naming: the identity is compared against the crop's
+        name-field using Frigate's own ``-``→``_`` sanitization so ``Foo-Bar`` and ``Foo_Bar``
+        are treated identically. Never deletes crops belonging to other identities or to
+        ``unknown`` (unless the removed identity is exactly that string). Never raises — a
+        missing/unconfigured/inaccessible faces dir simply results in 0 purged.
+        """
+        faces_dir = (self._settings.frigate.faces_dir or "").strip()
+        if not faces_dir:
+            return 0
+        train = Path(faces_dir) / "train"
+        try:
+            if not train.is_dir():
+                return 0
+            target = name.replace("-", "_")  # mirror Frigate's write_face_attempt sanitization
+            purged = 0
+            for entry in train.iterdir():
+                if not entry.is_file():
+                    continue
+                ident = self._train_crop_identity(entry.name)
+                if ident is None:
+                    continue
+                if ident.replace("-", "_") == target:
+                    try:
+                        entry.unlink()
+                        purged += 1
+                    except OSError as exc:  # pragma: no cover — fs race/permission
+                        _LOG.warning("could not remove train crop %s: %s", entry.name, exc)
+            if purged:
+                _LOG.info("purged %d train crop(s) for removed identity", purged)
+            return purged
+        except OSError as exc:  # pragma: no cover — defensive
+            _LOG.warning("train cleanup skipped (faces dir error): %s", exc)
+            return 0
 
     def rename_identity(self, old_name: str, new_name: str) -> dict[str, Any]:
         self._require_enabled("rename_identity")

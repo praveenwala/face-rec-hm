@@ -88,6 +88,13 @@ class FrigateConfig:
     http_timeout_seconds: float = 30.0
     http_connect_timeout_seconds: float = 10.0
     tls_verify: bool = True
+    # Optional filesystem path to Frigate's faces dir (…/clips/faces). When set AND
+    # accessible, identity removal also purges that identity's leftover attempt crops in
+    # `faces/train/` (see FrigateEnrollmentService.remove_identity) so a rebuilt recognizer
+    # cannot reintroduce a deleted identity. When empty/inaccessible, train cleanup is skipped
+    # safely (the HTTP reference delete still happens). Never used for anything but train
+    # cleanup; never touches identity reference dirs.
+    faces_dir: str = ""
 
     @property
     def auth_configured(self) -> bool:
@@ -162,6 +169,9 @@ def _load_frigate_config() -> FrigateConfig:
         # Strict TLS by default; an internal-CA/loopback setup may override explicitly.
         tls_verify=os.environ.get("FRIGATE_TLS_VERIFY", "true").strip().lower()
         not in ("0", "false", "no", "off"),
+        # Optional path to Frigate's faces dir for identity-scoped train-crop cleanup on
+        # removal. Empty by default → cleanup skipped safely.
+        faces_dir=os.environ.get("FRIGATE_FACES_DIR", "").strip(),
     )
 
 

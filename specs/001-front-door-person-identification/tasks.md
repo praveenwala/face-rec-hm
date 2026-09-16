@@ -323,16 +323,24 @@ Identity Library can be managed without silent auto-enrollment (spec US2, US6).
   recognition run and is tied to the final Known-person recognition E2E (T035), intentionally
   deferred.
 - [x] T041 [US6] Implement identity removal; confirm the removed identity is never reported
-  again (FR-021; US6 Acceptance Scenario 3) — **PASS (Frigate-side) 2026-09-15**: identity
+  again (FR-021; US6 Acceptance Scenario 3) — **PASS 2026-09-15 (corrected)**: identity
   removal verified in isolation on a throwaway Frigate identity (NOT Person_A / Person_B) —
-  seeded with 2 references then fully deleted; the identity became absent from both
-  `/api/faces` and the on-disk face dir with 0 references remaining, and Frigate rebuilds the
-  recognizer (`recognizer.clear()`) on delete so it has no embeddings to match — i.e. it can
-  never be reported again. Person_A and Person_B remained unchanged (both 6 references,
-  re-verified). The enrollment-app `remove_enrollment` path against a real enrolled identity
-  was intentionally NOT exercised (would require the gate ON and mutating a real person).
-  **Deferred**: live recognition non-report confirmation is tied to the final Known-person
-  recognition E2E (T035), intentionally deferred.
+  reference crops deleted, absent from `/api/faces` and the on-disk face dir.
+  **CORRECTION to the earlier note:** the original claim that the identity "can never be
+  reported again" was OVERSTATED. T035 later exposed a real removal defect — Frigate's
+  reference delete does **not** remove the identity-named attempt crops already saved under
+  `faces/train/`, and on a recognizer rebuild those leftover crops reintroduced the deleted
+  throwaway identity (it re-recognized at ~1.0 and competed with a real enrolled person,
+  suppressing that person's `sub_label`). **Fix applied:** `FrigateEnrollmentService.remove_identity`
+  now also purges ONLY the removed identity's crops from `faces/train/` (identity-scoped,
+  best-effort; never touches other identities' or `unknown` crops; skipped safely when the
+  faces dir is unconfigured). Regression-tested offline in
+  `enrollment-app/backend/app/tests/test_removal_train_cleanup.py` (throwaway identity +
+  identity-named train residue → remove → rebuild/re-scan → identity cannot reappear;
+  unrelated + `unknown` crops preserved; `-`/`_` name equivalence; no-faces-dir safe path).
+  Behavior documented in `docs/frigate-identity-removal.md`. Person_A and Person_B unchanged
+  (both 6 references). **Deferred**: live end-to-end non-report confirmation remains tied to
+  the final Known-person recognition E2E (T035).
 - [x] T042 [US6] Confirm a brand-new, never-enrolled face never silently creates a named
   identity (FR-022; US6 Acceptance Scenario 4) — **PASS 2026-09-15**: a brand-new,
   never-enrolled face (isolated test frame) submitted to Frigate's non-persisting
