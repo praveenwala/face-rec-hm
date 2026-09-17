@@ -1,0 +1,33 @@
+# Feature 002 — backend image (localhost-only POC).
+#
+# The container listens on 0.0.0.0:8000 INTERNALLY; exposure to the host is
+# loopback-only (127.0.0.1:8000) via docker-compose.enrollment.yml ports mapping.
+# All runtime data (app.db, people/, models/) lives on a bind-mounted volume at
+# /data (ENROLLMENT_DATA_DIR) — never in the image.
+FROM python:3.13-slim
+
+# opencv-python-headless wheels need libgomp at runtime; nothing else.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /srv/enrollment-backend
+
+# Install deps first for layer caching.
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the backend package only (frontend/, data/, scripts/ are not needed here).
+COPY backend/app ./app
+
+# Runtime data dir (gitignored on the host, bind-mounted read-write).
+ENV ENROLLMENT_DATA_DIR=/data
+
+EXPOSE 8000
+
+# Loopback-only exposure is enforced by the COMPOSE port mapping (127.0.0.1:8000:8000),
+# not by the container itself.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

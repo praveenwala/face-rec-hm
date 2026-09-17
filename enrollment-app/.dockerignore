@@ -1,0 +1,25 @@
+# Runtime/private data — never in an image.
+data/
+**/__pycache__/
+*.pyc
+backend/.venv/
+backend/.pytest_cache/
+
+# Secrets / environment files — never in an image (defense in depth; the Dockerfiles
+# also never do a broad `COPY . .`, but this holds regardless of how they're written).
+# No .env.example/.env.template exists inside this build context today — nothing
+# intended for the image is excluded by these patterns.
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Frontend build/dev artifacts (rebuilt inside the image).
+frontend/node_modules/
+frontend/dist/
+
+# VCS / tooling / editor noise.
+.git/
+.gitignore
+.freebuff/
+.DS_Store

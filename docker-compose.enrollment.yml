@@ -1,0 +1,68 @@
+# Feature 002 — Known Person Enrollment Manager (Dockerized, localhost-only).
+#
+# Standalone stack: `docker compose -f docker-compose.enrollment.yml up -d --build`
+# then open http://127.0.0.1:8090 in your browser.
+#
+# Privacy/security invariants (see enrollment-app/README.md):
+# - BOTH host port bindings are loopback-only (127.0.0.1). Nothing is exposed to
+#   the LAN or the Internet; the app is a localhost-only management surface.
+# - All runtime data (app.db, people/, models/) lives under ./enrollment-app/data,
+#   which is gitignored and bind-mounted read-write — never in the images.
+# - No Frigate/HA/MQTT integration: this stack is self-contained and never talks
+#   to the Feature 001 stack or production infrastructure (Phase 6 is blocked).
+# - The face-detection model is read from ./enrollment-app/data/models/facedet.onnx
+#   (gitignored). Fetch it once on the host with:
+#       enrollment-app/scripts/fetch_models.sh
+#   (the script also works when the container stack is not running).
+#
+# Independent of docker-compose.yml (Feature 001 POC stack): run either or both —
+# the enrollment stack binds 8000/8090, the 001 stack binds 1883/5000/8554/8124/18554.
+
+services:
+  enrollment-backend:
+    build:
+      context: ./enrollment-app
+      dockerfile: Dockerfile.backend
+    container_name: face-rec-enrollment-backend
+    restart: unless-stopped
+    environment:
+      - ENROLLMENT_DATA_DIR=/data
+      # Active Frigate reachable via the shared face-recognition_default network on its
+      # container-internal port 5000 (host mapping 5001 is NOT reachable from inside this
+      # container). Enrollment mutation stays gated OFF by default.
+      - FRIGATE_API_URL=http://face-rec-phase1-frigate:5000
+      - FRIGATE_FACES_DIR=/frigate-faces
+    ports:
+      # Loopback-only exposure. The container's uvicorn listens on 0.0.0.0
+      # internally; only 127.0.0.1:8000 reaches it from the host.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./enrollment-app/data:/data
+      # Minimal train-only mount (RW). Scopes container access to the Frigate
+      # face-training crop directory only; no access to reference identity dirs.
+      - ./frigate/media/clips/faces/train:/frigate-faces/train
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  enrollment-frontend:
+    build:
+      context: ./enrollment-app
+      dockerfile: Dockerfile.frontend
+    container_name: face-rec-enrollment-frontend
+    restart: unless-stopped
+    depends_on:
+      - enrollment-backend
+    ports:
+      # Loopback-only UI on a host port that doesn't clash with the native
+      # `npm run dev` port (5173).
+      - "127.0.0.1:8090:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
