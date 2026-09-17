@@ -132,7 +132,8 @@ own `.env` if you've changed the defaults there.
   default 5000 because macOS Control Center's AirPlay Receiver already uses it — see §16)
 - **Throwaway Home Assistant**: <http://localhost:8124> (mapped from container port 8123).
   This is a disposable instance for Phase 1 only — it is a separate instance from your real
-  production Home Assistant at `192.168.68.103`, not a view into it.
+  production Home Assistant (see the gitignored `.env` for its real address), not a view
+  into it.
 
 ## 6. Checking logs
 
