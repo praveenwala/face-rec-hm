@@ -8,8 +8,17 @@
 #   the LAN or the Internet; the app is a localhost-only management surface.
 # - All runtime data (app.db, people/, models/) lives under ./enrollment-app/data,
 #   which is gitignored and bind-mounted read-write — never in the images.
-# - No Frigate/HA/MQTT integration: this stack is self-contained and never talks
-#   to the Feature 001 stack or production infrastructure (Phase 6 is blocked).
+# - Feature 002's Frigate enrollment integration EXISTS and is real (not a stub). It is
+#   explicit and feature-gated: the single gate is FRIGATE_ENROLLMENT_ENABLED, which
+#   defaults to OFF/false — the steady state. It may be enabled only for an explicitly
+#   authorized, bounded enrollment/test window, then restored to OFF. While OFF, every
+#   mutating call refuses up-front (501 FEATURE_NOT_ENABLED) with zero Frigate mutation.
+#   When enabled, enrollment-backend reaches the Feature 001 Frigate container over the
+#   shared default network and mounts only Frigate's faces/train/ crop directory
+#   (train-only, RW) — never the reference identity directories. No HA/MQTT integration
+#   exists in this stack either way. T035 (stable Known-person recognition producing a
+#   matching sub_label) remains pending in every environment; enrollment/removal success
+#   is not evidence of that path.
 # - The face-detection model is read from ./enrollment-app/data/models/facedet.onnx
 #   (gitignored). Fetch it once on the host with:
 #       enrollment-app/scripts/fetch_models.sh
