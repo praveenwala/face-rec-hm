@@ -1,5 +1,5 @@
 {
-  "_note": "SANITIZED fixture derived from a real Frigate 0.17.2 frigate/events payload (T034-A). IDs/timestamps are synthetic; field STRUCTURE matches the live wire format. No real household media, no credentials. This is the UNKNOWN-person shape (sub_label null, no sub_label_score); the KNOWN shape sets sub_label to an identity string and carries sub_label_score.",
+  "_note": "SANITIZED fixture derived from a real Frigate 0.17.2 frigate/events payload (T034-A). IDs/timestamps are synthetic; field STRUCTURE matches the live wire format. No real household media, no credentials. This is the UNKNOWN-person shape (sub_label null, no sub_label_score). CORRECTED 2026-09-17: the known/positive-match shape is NOT a scalar sub_label + separate sub_label_score as originally assumed here — a captured real match showed sub_label as a 2-element [name, score] array with NO separate sub_label_score field at all. See frigate_event_known.json for the corrected known-shape fixture.",
   "type": "update",
   "before": {
     "id": "1700000000.000000-aaaaaa",

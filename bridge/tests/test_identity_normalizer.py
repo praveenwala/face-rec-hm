@@ -115,10 +115,37 @@ def test_G_unsupported_schema():
 
 # H. malformed sub_label (from T034-A) -> RECOGNITION_FAILURE ---------------
 def test_H_malformed_sub_label():
-    for bad in [["Known_Person_A", 0.9], {"n": "x"}, 123]:
+    # A valid 2-elem [name, score] array is Shape B (see test_ShapeB_* below) — NOT
+    # malformed; these remaining shapes have no valid interpretation.
+    for bad in [{"n": "x"}, 123]:
         pe = _parse({"id": "e", "camera": "front_door", "label": "person",
                      "sub_label": bad, "sub_label_score": 0.9, "score": 0.8})
         assert pe.outcome is ParseOutcome.PERSON_EVENT and pe.has_recognized_identity is False
+        r = normalize_identity(pe, _mapping(_KNOWN_ENTRY))
+        assert r.outcome == Outcome.RECOGNITION_FAILURE and r.known is False
+        assert r.identity is None
+
+
+# Shape B — corrected 2026-09-17 [name, score] array reaches IDENTITY_KNOWN -
+def test_ShapeB_array_sub_label_reaches_known():
+    pe = _parse({"id": "e", "camera": "front_door", "label": "person",
+                 "sub_label": ["Known_Person_A", 0.93], "score": 0.84})
+    assert pe.has_recognized_identity is True
+    assert pe.sub_label == "Known_Person_A"
+    assert pe.sub_label_score == 0.93
+    r = normalize_identity(pe, _mapping(_KNOWN_ENTRY))
+    assert r.outcome == Outcome.IDENTITY_KNOWN and r.known is True
+    assert r.raw_identity == "Known_Person_A"
+    assert r.identity == "Known Person A"
+    assert r.recognition_confidence == 0.93 and r.detection_confidence == 0.84
+
+
+def test_ShapeB_malformed_array_still_fails_closed():
+    for bad in [[], ["Known_Person_A"], ["Known_Person_A", 0.9, "extra"],
+                ["", 0.9], [None, 0.9], ["Known_Person_A", None],
+                ["Known_Person_A", "0.9"], ["Known_Person_A", True]]:
+        pe = _parse({"id": "e", "camera": "front_door", "label": "person",
+                     "sub_label": bad, "score": 0.8})
         r = normalize_identity(pe, _mapping(_KNOWN_ENTRY))
         assert r.outcome == Outcome.RECOGNITION_FAILURE and r.known is False
         assert r.identity is None

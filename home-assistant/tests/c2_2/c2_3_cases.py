@@ -198,10 +198,14 @@ CASES = [
     {"id": "K_entry_wrong_type", "category": "mapping_unavailable", "mapping_key": "base",
      "event": _person({"id": "K", "camera": "front_door", "label": "person",
                        "sub_label": "Entry_Not_Object", "sub_label_score": 0.90})},
-    # L. malformed sub_label list
-    {"id": "L_malformed_list", "category": "recognition_failure", "mapping_key": "base",
+    # L. valid Shape B [name, score] array -> KNOWN (CORRECTED 2026-09-17: this is
+    # Frigate 0.17.2's ACTUAL wire shape for a genuine positive match, confirmed via a
+    # captured live production event; it was previously — wrongly — assumed malformed).
+    # sub_label_score is deliberately included here too and must be IGNORED: the array's
+    # own second element is the sole source of recognition confidence for Shape B.
+    {"id": "L_shapeb_array_known", "category": "known", "mapping_key": "base",
      "event": _person({"id": "L", "camera": "front_door", "label": "person",
-                       "sub_label": ["Known_Person_A", 0.9], "sub_label_score": 0.9, "score": 0.80})},
+                       "sub_label": ["Known_Person_A", 0.9], "sub_label_score": 0.5, "score": 0.80})},
     # M. malformed sub_label dict
     {"id": "M_malformed_dict", "category": "recognition_failure", "mapping_key": "base",
      "event": _person({"id": "M", "camera": "front_door", "label": "person",
@@ -291,6 +295,47 @@ CASES = [
     {"id": "AM_absent_entry", "category": "unmapped", "mapping_key": "base",
      "event": _person({"id": "AM", "camera": "front_door", "label": "person",
                        "sub_label": "Totally_Absent", "sub_label_score": 0.90, "score": 0.80})},
+    # ---- Shape B [name, score] array — fail-closed malformed variants (2026-09-17) ----
+    # AN. empty array
+    {"id": "AN_shapeb_empty_array", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AN", "camera": "front_door", "label": "person",
+                       "sub_label": [], "score": 0.80})},
+    # AO. array length 1 (missing score element)
+    {"id": "AO_shapeb_length_one", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AO", "camera": "front_door", "label": "person",
+                       "sub_label": ["Known_Person_A"], "score": 0.80})},
+    # AP. array length 3 (extra element)
+    {"id": "AP_shapeb_length_three", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AP", "camera": "front_door", "label": "person",
+                       "sub_label": ["Known_Person_A", 0.9, "extra"], "score": 0.80})},
+    # AQ. empty-string name element
+    {"id": "AQ_shapeb_empty_name", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AQ", "camera": "front_door", "label": "person",
+                       "sub_label": ["", 0.9], "score": 0.80})},
+    # AR. whitespace-only name element
+    {"id": "AR_shapeb_whitespace_name", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AR", "camera": "front_door", "label": "person",
+                       "sub_label": ["   ", 0.9], "score": 0.80})},
+    # AS. null name element
+    {"id": "AS_shapeb_null_name", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AS", "camera": "front_door", "label": "person",
+                       "sub_label": [None, 0.9], "score": 0.80})},
+    # AT. null score element
+    {"id": "AT_shapeb_null_score", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AT", "camera": "front_door", "label": "person",
+                       "sub_label": ["Known_Person_A", None], "score": 0.80})},
+    # AU. string score element ("0.9" is NOT a permitted numeric string)
+    {"id": "AU_shapeb_string_score", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AU", "camera": "front_door", "label": "person",
+                       "sub_label": ["Known_Person_A", "0.9"], "score": 0.80})},
+    # AV. boolean score element (bool must never count as numeric)
+    {"id": "AV_shapeb_bool_score", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AV", "camera": "front_door", "label": "person",
+                       "sub_label": ["Known_Person_A", True], "score": 0.80})},
+    # AW. non-string name element (nested object)
+    {"id": "AW_shapeb_nonstring_name", "category": "recognition_failure", "mapping_key": "base",
+     "event": _person({"id": "AW", "camera": "front_door", "label": "person",
+                       "sub_label": [{"n": "x"}, 0.9], "score": 0.80})},
 ]
 
 # Sequential isolation sequences (AJ, AK, AL, + DISABLED->UNMAPPED). Each sequence is a

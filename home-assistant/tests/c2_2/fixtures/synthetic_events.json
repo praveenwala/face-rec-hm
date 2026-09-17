@@ -1,5 +1,5 @@
 {
-  "_comment": "T034-C2.2 SYNTHETIC frigate/events-style inputs — ISOLATED TEST FIXTURE ONLY. No real data. Each case mirrors the raw Frigate 0.17.2 event payload shape that T034-A parses (top-level {type, before, after}); the C2.2 Jinja normalizes value_json.after just like the reference oracle consumes FrigateEventParse. sub_label is a scalar identity string or null; sub_label_score is the SEPARATE face-recognition confidence; after.score is object/person detection.",
+  "_comment": "T034-C2.2 SYNTHETIC frigate/events-style inputs — ISOLATED TEST FIXTURE ONLY. No real data. Each case mirrors the raw Frigate 0.17.2 event payload shape that T034-A parses (top-level {type, before, after}); the C2.2 Jinja normalizes value_json.after just like the reference oracle consumes FrigateEventParse. sub_label has TWO supported shapes (CORRECTED 2026-09-17, from a captured live production positive match): Shape A is a scalar identity string with the SEPARATE face-recognition confidence in sub_label_score; Shape B is a 2-element [name, score] array (Frigate 0.17.2's ACTUAL wire shape for a genuine match) where sub_label_score is NOT emitted and the array's own second element is the confidence. after.score is always object/person detection, never recognition, for either shape.",
   "cases": [
     {
       "id": "A_known_enabled",
@@ -41,7 +41,38 @@
     {
       "id": "H_malformed_sub_label",
       "expect": {"outcome": "RECOGNITION_FAILURE", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
-      "event": {"type": "update", "before": {}, "after": {"id": "e-H", "camera": "front_door", "label": "person", "sub_label": ["Known_Person_A", 0.9], "sub_label_score": 0.9, "score": 0.80}}
+      "event": {"type": "update", "before": {}, "after": {"id": "e-H", "camera": "front_door", "label": "person", "sub_label": {"name": "Known_Person_A"}, "sub_label_score": 0.9, "score": 0.80}}
+    },
+    {
+      "id": "H2_shapeb_array_known",
+      "_note": "CORRECTED 2026-09-17: [name, score] is Frigate 0.17.2's ACTUAL wire shape for a genuine positive match (confirmed via a captured live production event) — not malformed. The stray sub_label_score below must be IGNORED; the array's own second element is the sole confidence source for this shape.",
+      "expect": {"outcome": "IDENTITY_KNOWN", "known": true, "raw_identity": "Known_Person_A", "identity": "Known Person A", "person_uuid": "00000000-0000-0000-0000-00000000000a", "relationship": "Family", "enabled": true, "recognition_confidence": 0.93, "detection_confidence": 0.84},
+      "event": {"type": "end", "before": {}, "after": {"id": "e-H2", "camera": "front_door", "label": "person", "sub_label": ["Known_Person_A", 0.93], "sub_label_score": 0.5, "score": 0.84}}
+    },
+    {
+      "id": "H3_shapeb_wrong_length",
+      "expect": {"outcome": "RECOGNITION_FAILURE", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-H3", "camera": "front_door", "label": "person", "sub_label": ["Known_Person_A"], "score": 0.80}}
+    },
+    {
+      "id": "H4_shapeb_null_score",
+      "expect": {"outcome": "RECOGNITION_FAILURE", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-H4", "camera": "front_door", "label": "person", "sub_label": ["Known_Person_A", null], "score": 0.80}}
+    },
+    {
+      "id": "H5_shapeb_bool_score",
+      "expect": {"outcome": "RECOGNITION_FAILURE", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-H5", "camera": "front_door", "label": "person", "sub_label": ["Known_Person_A", true], "score": 0.80}}
+    },
+    {
+      "id": "H6_shapeb_string_score",
+      "expect": {"outcome": "RECOGNITION_FAILURE", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-H6", "camera": "front_door", "label": "person", "sub_label": ["Known_Person_A", "0.9"], "score": 0.80}}
+    },
+    {
+      "id": "H7_shapeb_empty_name",
+      "expect": {"outcome": "RECOGNITION_FAILURE", "known": false, "raw_identity": null, "identity": null, "person_uuid": null, "relationship": null, "enabled": null, "recognition_confidence": null, "detection_confidence": 0.80},
+      "event": {"type": "update", "before": {}, "after": {"id": "e-H7", "camera": "front_door", "label": "person", "sub_label": ["", 0.9], "score": 0.80}}
     },
     {
       "id": "I_empty_identity",

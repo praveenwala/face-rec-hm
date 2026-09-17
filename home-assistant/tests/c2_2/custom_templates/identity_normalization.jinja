@@ -40,6 +40,17 @@
 {%- endif -%}
 {%- endmacro -%}
 
+{#- Weaker than _is_valid_score: TYPE-shaped only (bool excluded, any number incl.
+     NaN/inf accepted) — never checks finiteness. Mirrors bridge/frigate_event_parser.py's
+     `_coerce_float` (structural acceptance); `_is_valid_score` remains the SOLE downstream
+     finiteness/validity authority for both sub_label shapes (see normalize() below). -#}
+{%- macro _is_numeric_shaped(v) -%}
+{%- if v is boolean -%}0
+{%- elif v is number -%}1
+{%- else -%}0
+{%- endif -%}
+{%- endmacro -%}
+
 {%- macro _is_nonempty_str(v) -%}
 {%- if v is string and v|trim != '' -%}1{%- else -%}0{%- endif -%}
 {%- endmacro -%}
@@ -60,12 +71,30 @@
 {%- elif label != 'person' -%}
   {{- _emit('IGNORED_NON_PERSON', false, none, none, none, none, none, none, none, 'non-person event') -}}
 {%- else -%}
-  {#- interpret sub_label like T034-A _coerce_identity: non-empty scalar string => identity;
-      null/missing => no identity; any other shape (list/dict/number/bool) => malformed. -#}
+  {#- interpret sub_label, accepting BOTH supported Frigate 0.17.2 wire shapes (CORRECTED
+      2026-09-17 — mirrors bridge/frigate_event_parser.py::_coerce_identity exactly):
+        Shape A (scalar): non-empty string => identity; score comes from the SEPARATE
+          after.sub_label_score field.
+        Shape B (legacy array): exactly [name, score] — Frigate 0.17.2's ACTUAL wire
+          shape for a genuine positive match; after.sub_label_score is NOT emitted, so
+          the array's second element IS the candidate recognition confidence.
+      null/missing => no identity. Any other shape (dict/number/bool/wrong-length or
+      -typed array) => malformed. Score FINITENESS (NaN/inf rejection) is decided ONLY at
+      step (4) below via _is_valid_score, uniformly for both shapes — a structurally valid
+      array with a non-finite score still preserves raw_identity, exactly like Shape A. -#}
   {%- set raw_sub = (after.sub_label if 'sub_label' in after else none) -%}
   {%- set sub_is_str = (raw_sub is string) -%}
-  {%- set sub_malformed = (raw_sub is not none) and (not sub_is_str) -%}
-  {%- set identity = (raw_sub|trim if (sub_is_str and raw_sub|trim != '') else none) -%}
+  {%- set sub_is_seq = (raw_sub is sequence) and (raw_sub is not string) and (raw_sub is not mapping) -%}
+  {%- set shapeb_len_ok = sub_is_seq and (raw_sub|length == 2) -%}
+  {%- set shapeb_name = (raw_sub[0] if shapeb_len_ok else none) -%}
+  {%- set shapeb_score_raw = (raw_sub[1] if shapeb_len_ok else none) -%}
+  {%- set shapeb_name_ok = (shapeb_name is string) and (shapeb_name|trim != '') -%}
+  {%- set shapeb_valid_shape = shapeb_len_ok and shapeb_name_ok and (_is_numeric_shaped(shapeb_score_raw)|trim == '1') -%}
+  {%- set sub_malformed = (raw_sub is not none) and (not sub_is_str) and (not shapeb_valid_shape) -%}
+  {%- set identity = (
+        raw_sub|trim if (sub_is_str and raw_sub|trim != '')
+        else (shapeb_name|trim if shapeb_valid_shape else none)
+      ) -%}
 
   {#- ===== (2) malformed sub_label shape -> RECOGNITION_FAILURE ===== -#}
   {%- if sub_malformed -%}
@@ -74,7 +103,10 @@
   {%- elif identity is none -%}
     {{- _emit('IDENTITY_UNKNOWN', false, none, none, none, none, none, none, det, none) -}}
   {%- else -%}
-    {%- set raw_score = (after.sub_label_score if 'sub_label_score' in after else none) -%}
+    {#- candidate recognition score: Shape B's array element takes precedence when the
+        array shape is valid (its after.sub_label_score is never emitted); otherwise
+        Shape A's separate top-level field. -#}
+    {%- set raw_score = (shapeb_score_raw if shapeb_valid_shape else (after.sub_label_score if 'sub_label_score' in after else none)) -%}
     {#- ===== (4) asserted identity + missing/invalid recognition score -> RECOGNITION_FAILURE ===== -#}
     {%- if _is_valid_score(raw_score)|trim != '1' -%}
       {{- _emit('RECOGNITION_FAILURE', false, identity, none, none, none, none, none, det,

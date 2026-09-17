@@ -13,11 +13,21 @@ enrichment/dedup/relationship logic in Home Assistant Jinja templates ("no custo
 service"); this module is a self-contained parser/validation layer, not a running service —
 see the T034-A report for the flagged deviation to confirm before building a live bridge.
 
-VERIFIED Frigate 0.17.2 wire contract (see specs/001/contracts/mqtt-events.md, corrected
-T034-A): on `frigate/events`, `after.sub_label` is a scalar identity-name STRING or null;
-the FACE-RECOGNITION confidence is a SEPARATE field `sub_label_score` (present only when an
-identity is recognized; may be absent/null). `after.score` / `after.top_score` are the
-OBJECT/PERSON-DETECTION confidence and MUST NEVER be used as the recognition confidence.
+CORRECTED Frigate 0.17.2 wire contract (2026-09-17, from a captured live production
+positive match — see docs/production/mqtt-b5-production-verification-2026-09-17.md and
+the T035 root-cause analysis). The prior "VERIFIED" claim here was wrong for genuine
+matches: it was validated only against hand-constructed synthetic fixtures and
+null/no-match cases, never a real positive match. `after.sub_label` on `frigate/events`
+has TWO observed shapes, both supported:
+  - Shape A (scalar): a non-empty identity-name STRING (or null for no identity); the
+    FACE-RECOGNITION confidence is the SEPARATE field `after.sub_label_score`.
+  - Shape B (legacy array — Frigate 0.17.2's ACTUAL shape for a genuine positive match):
+    a 2-element `[name, score]` list. `after.sub_label_score` is NOT emitted in this
+    case; the array's second element IS the recognition confidence.
+Any other shape (dict, number, bool, wrong-length/typed array) is malformed and must
+NEVER be treated as a known identity. `after.score` / `after.top_score` are the
+OBJECT/PERSON-DETECTION confidence and MUST NEVER be used as the recognition confidence,
+for either shape.
 """
 
 from __future__ import annotations
@@ -80,20 +90,41 @@ def _coerce_float(value: Any) -> float | None:
     return None
 
 
-def _coerce_identity(sub_label: Any) -> tuple[str | None, str | None]:
-    """Interpret raw sub_label safely.
+def _coerce_identity(sub_label: Any) -> tuple[str | None, float | None, str | None]:
+    """Interpret raw sub_label, accepting BOTH supported Frigate 0.17.2 wire shapes.
 
-    Returns (identity_string_or_None, error_or_None). A non-empty scalar string is a
-    recognition candidate. null/missing => no identity. ANY other shape (list, dict, number,
-    empty string) is malformed and must NEVER be treated as a known identity.
+    Shape A (scalar string): a non-empty identity name; its recognition confidence
+    comes separately from `after.sub_label_score` (read by the caller).
+    Shape B (legacy 2-element array): `[name, score]` — Frigate 0.17.2's ACTUAL wire
+    shape for a genuine positive match (confirmed via a captured live production
+    event, 2026-09-17); `after.sub_label_score` is NOT emitted in this case, so the
+    array's second element IS the recognition confidence.
+
+    Returns (identity_or_None, array_score_or_None, error_or_None):
+      - null/missing sub_label            -> (None, None, None)              no identity
+      - non-empty string                  -> (identity, None, None)          Shape A
+      - valid 2-elem [name, score] array   -> (identity, score, None)        Shape B
+      - anything else (malformed)         -> (None, None, "malformed ...")   fail closed
+
+    The returned Shape-B `score` is the RAW coerced float (may be NaN/inf) — validity
+    (finite, non-bool) is enforced uniformly downstream by
+    ``identity_normalizer._valid_score`` for BOTH shapes, exactly as it already does for
+    Shape A's `sub_label_score`. This function only decides shape well-formedness, never
+    score validity — keeping a single source of truth for "is this score acceptable."
     """
     if sub_label is None:
-        return None, None
+        return None, None, None
     if isinstance(sub_label, str):
         s = sub_label.strip()
-        return (s, None) if s else (None, None)
-    # Malformed (e.g. legacy [name, score] array, dict, number) — fail safe: no identity.
-    return None, f"malformed sub_label (type={type(sub_label).__name__}); treated as no identity"
+        return (s, None, None) if s else (None, None, None)
+    if isinstance(sub_label, (list, tuple)) and len(sub_label) == 2:
+        name, score = sub_label[0], sub_label[1]
+        name_ok = isinstance(name, str) and name.strip() != ""
+        score_val = _coerce_float(score)
+        if name_ok and score_val is not None:
+            return name.strip(), score_val, None
+    # Malformed: wrong-length/typed array, dict, number, bool, etc. — fail safe.
+    return None, None, f"malformed sub_label (type={type(sub_label).__name__}); treated as no identity"
 
 
 def parse_event(raw: str | bytes | dict) -> FrigateEventParse:
@@ -143,15 +174,20 @@ def parse_event(raw: str | bytes | dict) -> FrigateEventParse:
     event_id = after.get("id") if isinstance(after.get("id"), str) else None
     camera = after.get("camera") if isinstance(after.get("camera"), str) else None
 
-    identity, id_err = _coerce_identity(after.get("sub_label"))
+    identity, array_score, id_err = _coerce_identity(after.get("sub_label"))
 
-    # recognition confidence: prefer top-level sub_label_score, then after.data.sub_label_score;
-    # NEVER fall back to detection score.
-    recog = _coerce_float(after.get("sub_label_score"))
-    if recog is None:
-        data = after.get("data")
-        if isinstance(data, dict):
-            recog = _coerce_float(data.get("sub_label_score"))
+    # recognition confidence: Shape B's array score takes precedence when present (its
+    # after.sub_label_score is never emitted); otherwise Shape A's top-level
+    # sub_label_score, then the after.data.sub_label_score fallback. NEVER fall back to
+    # detection score.
+    if array_score is not None:
+        recog = array_score
+    else:
+        recog = _coerce_float(after.get("sub_label_score"))
+        if recog is None:
+            data = after.get("data")
+            if isinstance(data, dict):
+                recog = _coerce_float(data.get("sub_label_score"))
 
     return FrigateEventParse(
         outcome=ParseOutcome.PERSON_EVENT,

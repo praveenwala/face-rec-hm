@@ -1,0 +1,31 @@
+{
+  "_note": "SANITIZED fixture derived from a REAL captured live production positive-match frigate/events payload (2026-09-17, docs/production/mqtt-b5-production-verification-2026-09-17.md). IDs/timestamps are synthetic; identity is the placeholder 'Person_B'. No real household media, no credentials, no UUID, no relationship mapping. Field STRUCTURE matches the live wire format exactly as captured: sub_label is a 2-element [name, score] array (Shape B) and there is NO separate top-level sub_label_score key at all — this is Frigate 0.17.2's ACTUAL shape for a genuine positive match, correcting the prior (wrong) assumption in frigate_event_unknown.json's note that a known identity would carry a scalar sub_label plus a separate sub_label_score field.",
+  "type": "end",
+  "before": {
+    "id": "1700000001.000000-bbbbbb",
+    "camera": "front_door",
+    "label": "person",
+    "sub_label": null,
+    "score": 0.79,
+    "top_score": 0.82,
+    "start_time": 1700000001.0,
+    "end_time": null,
+    "false_positive": false
+  },
+  "after": {
+    "id": "1700000001.000000-bbbbbb",
+    "camera": "front_door",
+    "label": "person",
+    "sub_label": ["Person_B", 0.93],
+    "score": 0.84375,
+    "top_score": 0.84375,
+    "start_time": 1700000001.0,
+    "end_time": 1700000012.0,
+    "false_positive": false,
+    "active": false,
+    "stationary": false,
+    "attributes": [],
+    "current_zones": [],
+    "entered_zones": []
+  }
+}
