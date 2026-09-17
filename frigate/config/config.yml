@@ -3,10 +3,27 @@
 # Intel host (constitution V.1 — build incrementally; FR-001/FR-002).
 # See contracts/mqtt-events.md for the frigate/events shape HA automations rely on later.
 
+# MQTT (production broker connectivity — MQTT-B5). Points the dev Frigate at the production
+# Home Assistant Mosquitto broker (authenticated, no TLS on trusted LAN; see the gitignored
+# .env for the actual host/port — never the real value here or in .env.example).
+# Credentials are injected via env vars that MUST begin with FRIGATE_ (Frigate 0.17 syntax:
+# single-brace '{FRIGATE_*}'). The values live ONLY in the gitignored .env (see .env.example
+# for placeholders) — never committed. Revert this block (back to host: mosquitto, no auth)
+# to roll back to the isolated single-host POC broker.
+# `topic_prefix: frigate` is intentionally the current single-Frigate topic contract —
+# production HA's deployed normalization automation already consumes `frigate/events` under
+# this exact prefix. Before ever connecting a second Frigate instance (e.g. the eventual
+# Phase 5 production host) to this same broker, define distinct topic prefixes/routing and
+# update the HA consumer(s) deliberately — do not silently share `frigate/*` between two
+# Frigate instances.
 mqtt:
-  host: mosquitto
+  enabled: true
+  host: "{FRIGATE_MQTT_HOST}"
   port: 1883
   topic_prefix: frigate
+  client_id: frigate_macdev
+  user: "{FRIGATE_MQTT_USER}"
+  password: "{FRIGATE_MQTT_PASSWORD}"
 
 # go2rtc is bundled in the Frigate image. The "exec" producer loops the sample test video
 # via ffmpeg (research.md #3) so Frigate always has a live-looking RTSP source without a

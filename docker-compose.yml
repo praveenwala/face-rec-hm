@@ -35,6 +35,13 @@ services:
       - ./frigate/media:/media/frigate
     environment:
       - TZ=${TZ:-UTC}
+      # MQTT credentials for the production broker (MQTT-B5). Values are read from the
+      # gitignored root .env (docker compose auto-loads it) and passed into the container as
+      # FRIGATE_-prefixed vars that Frigate's config '{FRIGATE_*}' substitution consumes.
+      # NEVER commit real values — .env is gitignored; .env.example holds placeholders only.
+      - FRIGATE_MQTT_HOST=${FRIGATE_MQTT_HOST:-}
+      - FRIGATE_MQTT_USER=${FRIGATE_MQTT_USER:-}
+      - FRIGATE_MQTT_PASSWORD=${FRIGATE_MQTT_PASSWORD:-}
       # 0.17 breaking change (upgraded 2026-09-09 from 0.15.1): go2rtc exec:/echo:/expr:
       # sources are blocked by default for security. The Phase 1 sample-media loop uses a
       # go2rtc exec producer (frigate/config/config.yml) to feed the validated test clip,
