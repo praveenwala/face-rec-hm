@@ -55,8 +55,37 @@ claimed as tuned. **Privacy/retention finding for production**: once identities 
 Frigate auto-saves every classified face attempt (incl. unknown faces) as `.webp` under
 `/media/frigate/clips/faces/train/` up to `save_attempts` (default 200) — production must
 plan retention/cleanup for unknown-face crops (constitution II.5; recorded in
-validation-report.md and production-deployment.md). Next: T034 (enroll first Known
-Identity), pending explicit approval.
+validation-report.md and production-deployment.md).
+
+**T034 (enroll the first Known Identities) is COMPLETE (2026-09-15).** Two identities
+(referred to here as Person_A / Person_B, per validation-report.md convention — real names
+never appear in this file) were enrolled via the Feature 002 enrollment workflow +
+Frigate's native face API, 6 reference photos each. `tasks.md` also shows T039–T042
+(unique-name enforcement, reference refinement, identity removal, no-silent-identity-
+creation) all `[x]` PASS 2026-09-15, each exercised on a throwaway Frigate identity —
+Person_A/Person_B were re-verified unchanged (6/6) after every one of these tests.
+**T035–T038 remain PENDING/deferred** (checkboxes unchecked in tasks.md): they require
+sustained per-track Known-person recognition producing a stable event `sub_label`, which
+has not yet been observed — per-attempt recognition has been seen as high as 0.98, but the
+Phase 5 checkpoint is explicitly **NOT cleared**. Root cause is recorded as Frigate 0.17.2's
+per-track weighted-average consistency behavior, not a threshold/config/reference defect.
+
+**Identity-removal defect (found via T035 testing, fixed, regression-tested, and now also
+live-tested):** removing a Frigate identity deletes its reference crops via the API but
+does **not** remove that identity's already-saved attempt crops under `faces/train/`; on a
+recognizer rebuild those leftover crops could reintroduce a deleted identity. Fixed in
+`FrigateEnrollmentService.remove_identity` (identity-scoped, best-effort train-crop purge).
+Regression-tested offline in
+`enrollment-app/backend/app/tests/test_removal_train_cleanup.py`; documented in
+`docs/frigate-identity-removal.md`. This is spec-001's own task **T041** ("Implement
+identity removal"), `[x]` PASS 2026-09-15 — a **different thing** from the "T041 bounded
+live regression" label used in a later session (2026-09-16/17) for an ad-hoc live-system
+validation exercise (create a throwaway identity + train residue against the real running
+enrollment-backend/Frigate stack, remove it, force a recognizer rebuild, confirm no
+reappearance) that PASSED against the deployed stack with Person_A/Person_B re-verified
+6/6 throughout. That session also found the enrollment gate left ON via a stale/uncleaned
+`docker-compose.t041-gate.override.yml` from that test; the gate has since been restored to
+its documented default (OFF) and the override file deleted.
 
 **Feature `002-known-person-enrollment-manager` (approved 2026-09-10):** a localhost-only
 web application (`enrollment-app/` — FastAPI + SQLite backend, React/Vite frontend, native
@@ -87,21 +116,66 @@ solely for similarity, never blocks approval, never deletes; both may be approve
 count), and a readiness UI
 ("N / 5 approved suitable photos — NOT READY / READY FOR ENROLLMENT"; READY is never
 ENROLLED — no Frigate call, embedding, or identity creation is triggered by readiness).
-**Phase 6 (Frigate enrollment) is BLOCKED pending explicit approval** and Phase 7 (HA) is
-not implemented — enrollment routes return `501 FEATURE_NOT_ENABLED` and the UI shows a
-contextual disabled control ("Enrollment unavailable…" / "Ready for enrollment —
-enrollment is not enabled in this phase"). All biometric data lives under
-`enrollment-app/data/` (gitignored). Feature 001's T034 stays NOT STARTED; this app's
-validated readiness is the preferred future gate. Run: `enrollment-app/backend/run.sh`
+**Phase 6 (Frigate enrollment) is now LIVE code, gated OFF by default** — this superseded
+the earlier "blocked" state. `enrollment-app/backend/app/api/enrollment.py` owns three real
+routes (`GET /api/frigate/status`, `POST /api/people/{id}/enroll`,
+`DELETE /api/people/{id}/enrollment`) that call the real Frigate face API through
+`FrigateEnrollmentService`; the old `501` stubs in `future.py` are retired. The single gate
+is the `FRIGATE_ENROLLMENT_ENABLED` env var (`config.py`, default **False** — "Do NOT flip
+this default without explicit authorization"). While OFF, every mutating call refuses
+up-front with `FeatureNotEnabledError` (501 `FEATURE_NOT_ENABLED`) and performs zero
+Frigate mutation — this is what the UI's disabled-control copy still describes. While ON,
+it performs real enrollment/removal; the intended steady state is OFF, turned ON only for
+short, explicitly authorized, bounded windows (T034, T039–T042, and the T041 live
+regression all followed this pattern) and restored to OFF afterward. Feature 001's T034 is
+COMPLETE (see above) — it used exactly this path, not just this app's readiness gate.
+All biometric data lives under `enrollment-app/data/` (gitignored). Run: `enrollment-app/backend/run.sh`
 (127.0.0.1:8000) + `cd enrollment-app/frontend && npm run dev` (127.0.0.1:5173); tests:
 `enrollment-app/backend` venv → `python -m pytest app/tests` (115 tests; detection tests
 need the model fetched via `scripts/fetch_models.sh`).
 
-Except for that enrollment app, this repo has no other application source code — only
-configuration (Docker Compose, Frigate, Mosquitto), scripts (`scripts/loop-test-video.sh`),
-and documentation. Identity/relationship/notification logic, once implemented (001-T043+),
-will be Home Assistant automations/Jinja2 templates, not custom application code (per the
-plan's Technical Context).
+Except for that enrollment app, this repo has no other *deployed* application source code —
+only configuration (Docker Compose, Frigate, Mosquitto), scripts
+(`scripts/loop-test-video.sh`), and documentation for the Feature 001 POC stack.
+
+**Phase 7 (HA intelligence) status — corrected; NOT "not implemented":** substantial
+identity-normalization and production-prep work exists in `home-assistant/`, all committed
+(`c205d80`, `549f19c`, `3c0940f`, `443d71f`, `4761693`, `875081c`), but **nothing has been
+deployed to production Home Assistant** (`docs/production/gate-a-results.md`:
+`LIVE_HA_UNCHANGED = YES`, `SAFE_TO_BEGIN_LIVE_IMPLEMENTATION = NO`):
+- Identity/relationship normalization logic (frigate/events → known/unknown + relationship)
+  is implemented as HA-native Jinja (`home-assistant/tests/c2_2/custom_templates/
+  identity_normalization.jinja`), validated in four isolated stages against a Python
+  reference oracle: C2.1 (oracle), C2.2 (real-HA-Template-engine render, 20/20 synthetic
+  cases), C2.3 (automated parity proof, 42/42 passed against the oracle), C2.4 (full real-HA
+  `check_config` validation of the isolated fixture). None of this touches any live/dev/
+  production HA instance — self-contained, gitignored throwaway HA venv only.
+  Identity/relationship logic is Jinja2 templates, not custom application code, matching
+  the plan's Technical Context.
+- A production-ready automation fragment (`home-assistant/automations/
+  frigate_person_end_normalization.yaml`) and a helper include
+  (`home-assistant/helpers/frigate_event_integration_helpers.yaml`) are committed and meant
+  to be appended to production `automations.yaml`/`configuration.yaml`, but have **not**
+  been appended yet. It only normalizes identity and fires an internal
+  `frigate_person_normalized` HA event — it does **not** yet send any notification; the
+  actual notification action is not implemented anywhere yet. It also depends on
+  `helpers/relationship_mapping.generated.yaml`, which does not exist yet (only a schema
+  example, `relationship_mapping.yaml.example`, is tracked); production has **no**
+  relationship-mapping include (`gate-a-results.md`: "no existing relationship-mapping
+  include observed").
+- Real production infrastructure changes **have** been made (operator-executed, documented
+  in `docs/production/mqtt-state-reconciliation.md`): the Mosquitto broker add-on was
+  installed and the HA MQTT integration configured and verified online on the production
+  Pi; a full HA backup was taken and verified, and its encryption key was rotated after an
+  accidental exposure (remediated and verified). Frigate itself is still **not** connected
+  to the production broker (`FRIGATE_MQTT_CONNECTED_TO_PRODUCTION = NO` as of that
+  document). Locally, `docker-compose.yml`/`frigate/config/config.yml` currently have an
+  **uncommitted** change (MQTT-B5) pointing the dev Frigate at the production broker
+  (credentials via gitignored `.env`); as of this check the dev Frigate container shows
+  that config loaded but no confirmed successful production MQTT connection in its logs —
+  treat production MQTT transport as still unverified end-to-end, not working.
+- No Ring/security automations were touched by any of this — verified independent
+  (`gate-a-results.md`: `RING_SECURITY_PATH_DEPENDENT_ON_AI = NO`).
 
 ## Local Test Documentation Gate
 
