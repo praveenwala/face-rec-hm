@@ -140,9 +140,13 @@ only configuration (Docker Compose, Frigate, Mosquitto), scripts
 
 **Phase 7 (HA intelligence) status — corrected; NOT "not implemented":** substantial
 identity-normalization and production-prep work exists in `home-assistant/`, all committed
-(`c205d80`, `549f19c`, `3c0940f`, `443d71f`, `4761693`, `875081c`), but **nothing has been
-deployed to production Home Assistant** (`docs/production/gate-a-results.md`:
-`LIVE_HA_UNCHANGED = YES`, `SAFE_TO_BEGIN_LIVE_IMPLEMENTATION = NO`):
+(`c205d80`, `549f19c`, `3c0940f`, `443d71f`, `4761693`, `875081c`). As of a fresh
+operator-executed, read-only verification on the production Pi (2026-09-17,
+`docs/production/mqtt-b5-production-verification-2026-09-17.md`), part of this **is now
+live on production Home Assistant** — this supersedes the immediately-prior state where
+`docs/production/gate-a-results.md` recorded `LIVE_HA_UNCHANGED = YES`/
+`SAFE_TO_BEGIN_LIVE_IMPLEMENTATION = NO` (that Gate A snapshot remains accurate as of its
+own capture date; it is not the current state):
 - Identity/relationship normalization logic (frigate/events → known/unknown + relationship)
   is implemented as HA-native Jinja (`home-assistant/tests/c2_2/custom_templates/
   identity_normalization.jinja`), validated in four isolated stages against a Python
@@ -152,30 +156,43 @@ deployed to production Home Assistant** (`docs/production/gate-a-results.md`:
   production HA instance — self-contained, gitignored throwaway HA venv only.
   Identity/relationship logic is Jinja2 templates, not custom application code, matching
   the plan's Technical Context.
-- A production-ready automation fragment (`home-assistant/automations/
-  frigate_person_end_normalization.yaml`) and a helper include
-  (`home-assistant/helpers/frigate_event_integration_helpers.yaml`) are committed and meant
-  to be appended to production `automations.yaml`/`configuration.yaml`, but have **not**
-  been appended yet. It only normalizes identity and fires an internal
-  `frigate_person_normalized` HA event — it does **not** yet send any notification; the
-  actual notification action is not implemented anywhere yet. It also depends on
-  `helpers/relationship_mapping.generated.yaml`, which does not exist yet (only a schema
-  example, `relationship_mapping.yaml.example`, is tracked); production has **no**
-  relationship-mapping include (`gate-a-results.md`: "no existing relationship-mapping
-  include observed").
-- Real production infrastructure changes **have** been made (operator-executed, documented
-  in `docs/production/mqtt-state-reconciliation.md`): the Mosquitto broker add-on was
-  installed and the HA MQTT integration configured and verified online on the production
-  Pi; a full HA backup was taken and verified, and its encryption key was rotated after an
-  accidental exposure (remediated and verified). Frigate itself is still **not** connected
-  to the production broker (`FRIGATE_MQTT_CONNECTED_TO_PRODUCTION = NO` as of that
-  document). Locally, `docker-compose.yml`/`frigate/config/config.yml` currently have an
-  **uncommitted** change (MQTT-B5) pointing the dev Frigate at the production broker
-  (credentials via gitignored `.env`); as of this check the dev Frigate container shows
-  that config loaded but no confirmed successful production MQTT connection in its logs —
-  treat production MQTT transport as still unverified end-to-end, not working.
-- No Ring/security automations were touched by any of this — verified independent
-  (`gate-a-results.md`: `RING_SECURITY_PATH_DEPENDENT_ON_AI = NO`).
+- The automation fragment (`home-assistant/automations/frigate_person_end_normalization.yaml`)
+  and helper include (`home-assistant/helpers/frigate_event_integration_helpers.yaml`) are
+  **DEPLOYED AND ENABLED on production** (fresh operator verification, 2026-09-17) — it
+  actively triggers on real `frigate/events`, correctly filters non-`end`/non-`person`
+  messages, dedupes via `input_text.frigate_last_processed_event_id`, and on a qualifying
+  event fires the internal `frigate_person_normalized` HA event
+  (`outcome=IDENTITY_UNKNOWN, known=false` was observed — see below). It still contains
+  **no `notify.*` action** — the actual notification path is not implemented anywhere yet,
+  by design (Gate I in `live-ha-integration-preflight.md` is not executed). Production now
+  has `/homeassistant/helpers/relationship_mapping.generated.yaml` (confirmed to exist by
+  the operator; its contents were not read/exposed and never appear in this repo).
+- **MQTT-B5 (Frigate → production broker) is CONNECTED and working**, confirmed from both
+  sides: the broker holds retained `frigate/available = online` and passes live
+  `frigate/events` (observed directly on the broker, 2026-09-17), and production HA's MQTT
+  integration is Online and receiving that same traffic (operator-confirmed same day). This
+  supersedes `mqtt-state-reconciliation.md`'s `FRIGATE_MQTT_CONNECTED_TO_PRODUCTION = NO`
+  (accurate as of 2026-09-14, not current). **Important caveat:** the source is still the
+  dev/POC Frigate on the Mac replaying looped sample test media
+  (`docker-compose.yml`/`frigate/config/config.yml`, still locally uncommitted) — not a
+  live Ring camera feed. Production HA is therefore continuously processing simulated
+  person-detection traffic for as long as the dev stack stays up with this wiring in place;
+  no notification fires and no identity is stored, but it is a real, live cross-environment
+  dependency tying production event processing to a dev machine's uptime, worth a
+  deliberate decision rather than leaving unnoticed.
+- **The Known path remains blocked on T035** (unchanged): the one qualifying real event
+  observed in production verification normalized to `IDENTITY_UNKNOWN`, which is the
+  correct fail-closed result for an event that hasn't (yet, anywhere, dev or production)
+  produced a stable recognized `sub_label` — see T035 status above. This is expected
+  behavior, not a defect, and is not evidence toward or against T035 itself.
+- The Mosquitto broker add-on install + HA MQTT integration configuration on the production
+  Pi (operator-executed, `docs/production/mqtt-state-reconciliation.md`), the full HA
+  backup taken/verified, and the backup-encryption-key rotation after an accidental
+  exposure (remediated and verified) all remain accurate history.
+- Ring/security automations were not touched by any of this and remain independent — now
+  freshly reconfirmed (2026-09-17: both Front Door Doorbell Notification and Front Door
+  Motion Notification enabled), not just historical (`gate-a-results.md`:
+  `RING_SECURITY_PATH_DEPENDENT_ON_AI = NO`).
 
 ## Local Test Documentation Gate
 

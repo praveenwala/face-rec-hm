@@ -60,7 +60,15 @@ additive only.
 
 > **SUPERSEDED for CURRENT state** (2026-09-14): Mosquitto was subsequently installed and the HA
 > MQTT integration configured during PRE-B3-A. This section remains accurate **as of Gate A**;
-> for current MQTT state see [mqtt-state-reconciliation.md](mqtt-state-reconciliation.md).
+> for MQTT state as of 2026-09-14 see [mqtt-state-reconciliation.md](mqtt-state-reconciliation.md).
+>
+> **SUPERSEDED AGAIN for CURRENT state** (2026-09-17): Frigate↔production MQTT transport is now
+> connected, the normalization automation is deployed/enabled and receiving real `frigate/events`,
+> and `helpers/relationship_mapping.generated.yaml` now exists on production — see
+> [mqtt-b5-production-verification-2026-09-17.md](mqtt-b5-production-verification-2026-09-17.md).
+> The "no existing relationship-mapping include observed" and "MQTT_INTEGRATION_FRESHLY_VERIFIED"
+> facts below remain accurate as historical snapshots of their own capture dates; they are not the
+> current state.
 
 - Home Assistant **MQTT integration is not currently configured** on production
 - the official Mosquitto broker app is **available but not installed**

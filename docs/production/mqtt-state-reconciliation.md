@@ -6,7 +6,16 @@ production changes that **actually occurred** during operator-assisted PRE-B3-A.
 production mutation is authorized here.
 **Supersedes (for CURRENT state only):** the point-in-time "current state" snapshots in
 [gate-a-results.md](gate-a-results.md) §MQTT and [mqtt-deployment-runbook.md](mqtt-deployment-runbook.md) §1.
-Those documents remain historically accurate as of their capture; this record is the current truth.
+Those documents remain historically accurate as of their capture; this record was the current
+truth as of 2026-09-14.
+
+> **SUPERSEDED for CURRENT state** (2026-09-17): §4 below ("Blocker 1 NOT fully resolved" /
+> `FRIGATE_MQTT_CONNECTED_TO_PRODUCTION = NO`) is no longer current. Frigate is now connected to
+> the production broker, the normalization automation is deployed/enabled and consuming real
+> `frigate/events`, and the generated relationship mapping now exists on production — see
+> [mqtt-b5-production-verification-2026-09-17.md](mqtt-b5-production-verification-2026-09-17.md).
+> §1–3 and §5 (broker install, backup, key-rotation history) remain accurate as historical fact
+> and are unaffected by this update.
 
 ---
 
